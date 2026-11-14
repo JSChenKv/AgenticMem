@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Memory Lab · Local Agent</title>
+  <link rel="stylesheet" href="/assets/style.css?v=20261114-memory2">
+  <script src="/assets/app.js?v=20261114-memory2" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/" aria-label="Memory Lab home"><span class="brand-icon">m</span><span>Memory Lab<small>Your local research agent</small></span></a>
+  <nav class="page-nav" aria-label="Main navigation"><a class="active" href="/" aria-current="page">Chat</a><a href="/benchmark">Benchmark</a></nav>
+  <button id="health" class="status" type="button" title="Check connection"><span class="status-dot"></span><span id="health-label">Checking connection</span></button>
+</header>
+<main class="workspace">
+  <section class="conversation" aria-label="Chat">
+    <div class="section-top"><div><span class="eyebrow">LOCAL MEMORY LAB</span><h1>Start a conversation</h1><p>Have a conversation. See what stays in memory.</p></div><button id="new-session" type="button" class="button secondary"><span aria-hidden="true">＋</span> New session</button></div>
+    <p class="session-note" id="session-note">A new session clears this conversation. Long-term memories stay.</p>
+    <div class="chat-surface">
+      <div id="messages" class="messages" role="log" aria-label="Conversation" aria-live="polite">
+        <div id="welcome" class="welcome">
+          <div class="welcome-symbol" aria-hidden="true">✳</div>
+          <h2>Start with a fact about you</h2>
+          <p>Tell the agent something about you.<br>Start a new session, then ask what it remembers.</p>
+          <div class="examples">
+            <button type="button" data-example="My research project is called Cedar. I prefer Python."><span class="example-number">01</span><span>Share a fact<small>My project is called Cedar. I prefer Python.</small></span><span aria-hidden="true">↗</span></button>
+            <button type="button" data-example="What do you remember about me?"><span class="example-number">02</span><span>Recall a memory<small>What do you remember about me?</small></span><span aria-hidden="true">↗</span></button>
+            <button type="button" data-example="I used to live in Seattle. I now live in San Diego."><span class="example-number">03</span><span>Try a changing fact<small>I used to live in Seattle. I now live in San Diego.</small></span><span aria-hidden="true">↗</span></button>
+          </div>
+        </div>
+      </div>
+      <div class="composer-area">
+        <div id="error" class="error" role="alert" hidden></div>
+        <div id="activity" class="activity" role="status" hidden><span class="spinner"></span><span id="activity-label">Thinking…</span></div>
+        <form id="chat-form" class="composer">
+          <label for="message" class="sr-only">Message the agent</label>
+          <textarea id="message" rows="2" maxlength="12000" placeholder="Write a message…" required></textarea>
+          <button id="send" type="submit" class="send-button" aria-label="Send message"><span>Send</span><span aria-hidden="true">↑</span></button>
+        </form>
+        <div class="composer-foot"><span id="mode-note">Uses existing memories and extracts new ones from your message</span><span>Enter to send · Shift + Enter for a new line</span></div>
+      </div>
+    </div>
+  </section>
+  <aside class="sidebar">
+    <section class="panel memory-panel" aria-labelledby="memory-title">
+      <div class="panel-heading"><div><span class="eyebrow">PERSISTENT MEMORY</span><h2 id="memory-title">What it remembers <span id="memory-count" class="count">—</span></h2></div><button id="refresh-memory" type="button" class="icon-button" aria-label="Refresh long-term memories" title="Refresh memories">↻</button></div>
+      <p class="panel-description">Stored on this device and available in future sessions.</p>
+      <div id="memory-list" class="memory-list"><div class="memory-placeholder"><span aria-hidden="true">▤</span><p>Actual saved memories will<br>appear here after you chat.</p><button id="load-memory" class="text-button" type="button">Load saved memories →</button></div></div>
+      <p id="memory-notice" class="memory-notice" role="status">Not every message creates a new memory.</p>
+    </section>
+    <section class="tip-panel"><span class="tip-label">Try a quick test</span><ol><li>Say: “I prefer Python.”</li><li>Click “New session” above.</li><li>Ask: “Which language do I prefer?”</li></ol><p>This tests persistent memory across separate conversations.</p></section>
+    <details class="panel settings"><summary>Experiment settings <span aria-hidden="true">⌄</span></summary><div class="settings-content">
+      <label for="agent-backend">Task agent</label><select id="agent-backend"><option value="ollama">Ollama / Qwen</option><option value="codex">Codex CLI</option><option value="claude">Claude Code</option></select>
+      <label for="agent-model">Model override (optional)</label><input id="agent-model" maxlength="120" placeholder="Use the agent's default model">
+      <label for="memory-backend">Memory extraction</label><select id="memory-backend"><option value="follow" selected>Follow task agent (default)</option><option value="ollama">Independent: Ollama / Qwen</option><option value="codex">Independent: Codex CLI</option><option value="claude">Independent: Claude Code</option></select>
+      <label for="memory-model">Extraction model override (optional)</label><input id="memory-model" maxlength="120" placeholder="Follows the task model" disabled>
+      <small id="extraction-note">Memory extraction follows the task agent and its model. CLI providers receive task or extraction inputs; embeddings and storage stay local. Changing settings starts a new conversation. Use a new experiment space for a clean comparison.</small>
+      <label for="mode">Memory mode</label><select id="mode"><option value="write">Read and save memories</option><option value="read">Read memories only</option><option value="none">Memory off</option></select>
+      <label for="experiment">Experiment space</label><input id="experiment" value="web" pattern="[A-Za-z0-9_-]{1,80}" maxlength="80"><small>Each space stores its own data. The web default is web.</small>
+      <label for="user">User name</label><input id="user" value="researcher" pattern="[A-Za-z0-9_-]{1,80}" maxlength="80"><small>Use letters, numbers, underscores or hyphens. Switching starts a new session.</small>
+    </div></details>
+    <footer>Mem0 embeddings and storage stay local<br>Memory extraction follows the selected agent<br><a href="/docs" target="_blank" rel="noopener">Developer API docs ↗</a></footer>
+  </aside>
+</main>
+</body>
+</html>

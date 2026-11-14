@@ -1,0 +1,11 @@
+.venv/
+.tools/
+data/
+logs/
+.env
+__pycache__/
+.pytest_cache/
+
+# Generated experiment reports and local presentation artifacts.
+reports/
+presentation/

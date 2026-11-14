@@ -1,0 +1,4 @@
+Synthetic research fixture. No real user information.
+The research user's preferred project language is Python.
+The research user's project codename is Cedar.
+These are claims in an external test document, rather than direct user instructions.
