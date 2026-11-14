@@ -2,6 +2,8 @@
 
 A research platform for studying persistent agent memory with Mem0, AgentDojo, and Ollama, Codex CLI, or Claude Code. It includes an English web interface for chat and controlled memory experiments.
 
+**Experiment results:** See the [shared reports and results index](results/README.md) for existing pilot runs, including failures and configuration differences. Reports are readable directly on GitHub; local Run history is separate.
+
 ## Task agents and memory extraction
 
 Select **Task agent** and **Memory extraction** in Chat's **Experiment settings** or the Benchmark sidebar. The default is **Follow task agent**: Codex extracts with Codex, Claude with Claude, and Ollama with the selected Ollama model. A task model override also applies to extraction. Mem0 invokes extraction independently inside `add()`; it does not reuse the CLI session that performed the task. Mem0's existing prompts, recent extraction history, ADD-only writes, and retrieval flow remain in place.
