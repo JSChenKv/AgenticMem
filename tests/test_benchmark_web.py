@@ -13,7 +13,7 @@ RUN = 'dojo_20261019_020000_abcdef'
 def saved_run(manager, status='completed'):
     directory = manager.runs / RUN
     directory.mkdir(parents=True)
-    (directory / 'summary.json').write_text(json.dumps({'run_id': RUN, 'status': status, 'cases': [], 'exposure_policy': 'reference'}))
+    (directory / 'summary.json').write_text(json.dumps({'run_id': RUN, 'status': status, 'cases': [], 'exposure_policy': 'agent'}))
     (directory / 'report.md').write_text('# Saved report')
     return directory
 
@@ -122,7 +122,7 @@ def test_surviving_worker_lock_blocks_a_second_run_and_is_visible(tmp_path):
         assert manager.running() and manager.active_run == RUN
         assert manager.get(RUN)['active']
         with pytest.raises(RuntimeError, match='already running'):
-            manager.start(['user_task_14'], 'reference')
+            manager.start(['user_task_14'], 'agent')
     assert not manager.running()
     assert manager.get(RUN)['status'] == 'interrupted'
 
@@ -133,3 +133,13 @@ def test_stage_progress_is_atomic_and_has_no_answers(tmp_path):
     saved = json.loads((tmp_path / 'progress.json').read_text())
     assert saved['stage'] == 'poison' and saved['total_cases'] == 2
     assert 'expected' not in saved and not (tmp_path / 'progress.tmp').exists()
+
+
+@pytest.mark.parametrize('settings', [
+    {'workflow': 'pilot'}, {'workflow': 'episode'}, {'workflow': 'autonomous'},
+    {'workflow': 'direct'}, {'exposure_policy': 'reference'}, {'evaluation_tools': 'memory_only'},
+])
+def test_removed_workflows_cannot_launch(monkeypatch, settings):
+    monkeypatch.setattr(api, 'jobs', SimpleNamespace(start=lambda *a: pytest.fail('Must not launch')))
+    response = TestClient(api.app).post('/benchmarks', json={'tasks': ['user_task_30'], **settings})
+    assert response.status_code == 422

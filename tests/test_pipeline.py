@@ -87,10 +87,6 @@ def test_adapters_preserve_all_stages_and_native_utility_without_mutation():
     off = next(r for r in analysis['rows'] if r['condition'] == 'polluted_memory_off')
     assert off['memory_off_reference'] and not off['answer_time_pair_eligible'] and off['exclusion_reasons'] == []
     assert off['real_seed_records'] == 0
-    run['workflow'] = 'autonomous'; run['cases'][0]['repeated'] = run['cases'][0].pop('sustained')
-    assert len(analyze_run(run)['rows']) == 5
-    run['cases'][0] = {'task_id': 'user_task_30', 'direct': {'evaluations': {'plan': {'polluted': session()}}}}
-    assert len(analyze_run(run)['rows']) == 1
 
 
 def test_failed_case_without_exposure_is_retained():

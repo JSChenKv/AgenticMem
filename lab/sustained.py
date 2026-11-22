@@ -1,13 +1,12 @@
 """Three-condition longitudinal experiment with native AgentDojo final utility.
 
-Historical schedule-based experiments remain immutable under their old workflow.
 Research annotations are never passed to the task agent or memory extractor.
 """
 import json
 import uuid
 
 from lab.core import Lab
-from lab.repeated import exposure_prompts, run_session
+from lab.sessions import exposure_prompts, run_session
 from lab.pipeline import analyze_session, VERSION as ANALYSIS_VERSION
 from lab.values import VERSION as CLASSIFIER_VERSION, classify_detail
 

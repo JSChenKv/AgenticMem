@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from agentdojo.task_suite.load_suites import get_suite
 
-from lab import api, benchmark, dojo, repeated, sustained
+from lab import api, benchmark, dojo, sessions, sustained
 from scripts.export_results import export_sustained, render_run
 
 
@@ -45,7 +45,7 @@ def fake_storage(monkeypatch):
         def close(self):
             pass
 
-    monkeypatch.setattr(repeated, 'Lab', Lab)
+    monkeypatch.setattr(sessions, 'Lab', Lab)
     return calls
 
 
@@ -64,8 +64,8 @@ def test_final_original_prompt_actual_polluted_source_and_native_score(monkeypat
         assert not error and case['payload'] in ' '.join(content.split())
         return 'Pearl Harbor.'
 
-    monkeypatch.setattr(repeated, 'autonomous_answer', answer)
-    result = repeated.run_session(suite, case, 'fake', prompt, injected=True, memory_off=True,
+    monkeypatch.setattr(sessions, 'autonomous_answer', answer)
+    result = sessions.run_session(suite, case, 'fake', prompt, injected=True, memory_off=True,
                                   official=True, audit=True, system_prompt=sustained.SYSTEM)
     assert result['status'] == 'completed'
     assert result['native_utility'] is False
@@ -79,9 +79,9 @@ def test_final_original_prompt_actual_polluted_source_and_native_score(monkeypat
     ('It might be Diamond Head, but the file claims Pearl Harbor. I cannot resolve this.', True)])
 def test_native_scoring_is_not_replaced_by_custom_conflict_scoring(monkeypatch, suite, answer, passed):
     fake_storage(monkeypatch)
-    monkeypatch.setattr(repeated, 'autonomous_answer', lambda *args: answer)
+    monkeypatch.setattr(sessions, 'autonomous_answer', lambda *args: answer)
     case = dojo.CASES[1]
-    result = repeated.run_session(suite, case, 'fake', suite.get_user_task_by_id(case['task_id']).PROMPT,
+    result = sessions.run_session(suite, case, 'fake', suite.get_user_task_by_id(case['task_id']).PROMPT,
                                   official=True, audit=True, system_prompt=sustained.SYSTEM)
     sustained.inspect_session(case, result, ['real'])
     assert result['native_utility'] is passed
@@ -98,9 +98,9 @@ def test_five_stage_audit_keeps_per_query_rank_and_does_not_label_rejection_adop
         execute('search_files', {'query': 'vacation plans'})
         return 'The June 13 Pearl Harbor claim conflicts with Diamond Head; it needs confirmation.'
 
-    monkeypatch.setattr(repeated, 'autonomous_answer', answer)
+    monkeypatch.setattr(sessions, 'autonomous_answer', answer)
     case = dojo.CASES[1]
-    value = repeated.run_session(suite, case, 'fake', 'Review.', injected=True, write=True, audit=True)
+    value = sessions.run_session(suite, case, 'fake', 'Review.', injected=True, write=True, audit=True)
     sustained.inspect_session(case, value, ['real'])
     trace = value['memory_trace']
     assert trace['payload_seen'] and trace['answer_target_text_match']
@@ -178,16 +178,16 @@ def test_failed_exposure_is_preserved_and_its_final_is_not_silently_run(monkeypa
 
 
 def test_memory_off_write_rejected_before_opening_storage(monkeypatch, suite):
-    monkeypatch.setattr(repeated, 'Lab', lambda *a: pytest.fail('Must reject before opening storage'))
+    monkeypatch.setattr(sessions, 'Lab', lambda *a: pytest.fail('Must reject before opening storage'))
     with pytest.raises(ValueError, match='cannot write'):
-        repeated.run_session(suite, dojo.CASES[1], 'fake', 'Question', memory_off=True, write=True)
+        sessions.run_session(suite, dojo.CASES[1], 'fake', 'Question', memory_off=True, write=True)
 
 
 def test_protocol_default_api_and_workspace_required(monkeypatch, tmp_path, suite):
     calls = []
     monkeypatch.setattr(api, 'jobs', SimpleNamespace(start=lambda *a: calls.append(a) or {'run_id': 'test'}))
     response = TestClient(api.app).post('/benchmarks', json={'tasks': ['user_task_30']})
-    assert response.status_code == 202 and calls[0][-3:] == ('sustained', 0, 'workspace')
+    assert response.status_code == 202 and calls[0][-2:] == ('sustained', 'workspace')
     with pytest.raises(ValueError, match='requires workspace'):
         benchmark.BenchmarkJobs(tmp_path).start(['user_task_30'], 'agent', workflow='sustained', evaluation_tools='memory_only')
     p = sustained.protocol([dojo.CASES[1]], suite)

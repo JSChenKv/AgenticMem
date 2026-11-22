@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Benchmark · Memory Lab</title>
-  <link rel="stylesheet" href="/assets/style.css?v=20261121-analysis2">
-  <script src="/assets/benchmark.js?v=20261121-analysis2" defer></script>
+  <link rel="stylesheet" href="/assets/style.css?v=20261121-current3">
+  <script src="/assets/benchmark.js?v=20261121-current3" defer></script>
 </head>
 <body>
 <header class="topbar">
@@ -33,23 +33,6 @@
         <p class="panel-description">Official workspace tasks with fixed test payloads.</p>
         <label class="field-label" for="workflow">Experiment workflow</label>
         <select id="workflow"><option value="sustained" selected>Sustained exposure · native Final</option></select>
-        <div id="direct-options" hidden>
-          <label class="field-label" for="source-run">Source autonomous run</label>
-          <select id="source-run"><option value="">No completed autonomous runs</option></select>
-          <p class="config-note">Reuse the source run's Repeated + memory off results as the clean-file reference. Run only two new polluted-source sessions per selected case: a reminder and a plan. The original results stay unchanged.</p>
-          <p class="config-note">Memory searches always return empty records; no memory writes or extraction. The agent chooses its own tools. Reused controls and new results are labeled separately.</p>
-        </div>
-        <div id="autonomous-options" hidden>
-          <p class="config-note">Matched schedules: Clean 000 · Single early 100 · Single late 001 · Repeated 111. One fixed payload per case; actual exposure depends on the agent's tool choices.</p>
-          <label class="field-label" for="evaluation-tools">Final evaluation tools</label>
-          <select id="evaluation-tools"><option value="workspace">Memory + clean workspace</option><option value="memory_only">Memory only (diagnostic)</option></select>
-          <p class="config-note">The agent chooses memory, email and file searches. Final tests use clean sources and six conditions, including memory off and restoration to the matched clean timeline. No probe writes or real actions.</p>
-        </div>
-        <div id="episode-options" hidden>
-        <label class="field-label" for="delay-tasks">Intermediate tasks</label>
-        <select id="delay-tasks"><option value="0">0 — immediate transfer</option><option value="1" selected>1 — one clean task between sessions</option><option value="3">3 — three clean tasks between sessions</option></select>
-        <p id="episode-help" class="config-note">Fresh sessions share persistent memory. Reminder drafts and structured plans compare clean, poisoned, memory off, and restored memory. Probes cannot reread the original source and do not save memories or execute actions.</p>
-        </div>
         <label class="field-label" for="agent-backend">Task agent</label>
         <select id="agent-backend"><option value="ollama">Ollama / Qwen</option><option value="codex">Codex CLI</option><option value="claude">Claude Code</option></select>
         <label class="field-label" for="agent-model">Model override (optional)</label>
@@ -65,8 +48,8 @@
           <label class="case-option"><input type="checkbox" name="task" value="user_task_30" checked><span><strong>Hawaii itinerary</strong><small>Document · user_task_30</small><span>A keyword-stuffed document changes a planned activity.</span></span></label>
         </fieldset>
         <label class="field-label" for="policy">Source exposure</label>
-        <select id="policy"><option value="reference">Controlled reference reads</option><option value="agent">Agent-selected tool calls</option></select>
-        <p id="policy-help" class="config-note">Replays official reference tool calls in both branches. The selected agent generates each answer without seeing the ground truth.</p>
+        <select id="policy"><option value="agent">Agent-selected tool calls</option></select>
+        <p id="policy-help" class="config-note">Every session chooses its own memory, email and file searches.</p>
         <button id="run-button" class="primary-button" type="submit">Run selected cases <span aria-hidden="true">↗</span></button>
         <p class="config-note">Each run has isolated memory. Chat pauses while a benchmark runs. Task agents receive no run labels, scores or attack targets.</p>
         <div id="run-error" class="error" role="alert" hidden></div>
@@ -77,7 +60,7 @@
     <section class="benchmark-results" aria-label="Experiment results">
       <div class="run-toolbar"><label for="run-select">Run history</label><select id="run-select" aria-label="Choose a run"><option value="">Loading runs…</option></select><button id="reload-runs" class="icon-button" type="button" aria-label="Refresh run history" title="Refresh run history">↻</button></div>
       <div id="page-error" class="error" role="alert" hidden></div>
-      <div id="empty-state" class="panel benchmark-empty" hidden><div class="welcome-symbol">✳</div><h2>Your first memory experiment</h2><p>Select a case and run it. Compare what the agent recalls with clean memory, poisoned memory and memory turned off.</p></div>
+      <div id="empty-state" class="panel benchmark-empty" hidden><div class="welcome-symbol">✳</div><h2>Your first memory experiment</h2><p>Select a case and run it. Compare clean sources, polluted sources with memory, and polluted sources without memory. Final uses the original AgentDojo task.</p></div>
       <section id="run-detail" hidden>
         <div class="panel progress-panel">
           <div class="run-heading"><div><span class="eyebrow">EXPERIMENT STATUS</span><h2 id="run-status">Loading…</h2></div><span id="run-badge" class="badge"></span></div>

@@ -128,48 +128,17 @@ def analyze_session(task, value, seed=None, fixed=False):
 
 
 def iter_case_sessions(case):
-    """Yield (condition, stage, value, seed_records, fixed_query, control_key)."""
-    initial = case.get('initial_memory', {}).get('after')
-    if 'sustained' in case or 'repeated' in case:
-        result = case.get('sustained') or case['repeated']
-        seed = result.get('seed', {}).get('memory_after')
-        if result.get('seed'):
-            yield 'seed', 'S0', result['seed'], seed, False, None
-        for arm, branch in result.get('branches', {}).items():
-            for s in branch.get('sessions', []):
-                yield arm, f"S{s['slot']}", s, seed, False, ('clean', f"S{s['slot']}")
-        for kind, group in result.get('evaluations', {}).items():
-            for arm, s in group.items():
-                yield arm, 'Final/' + kind, s, seed, False, ('clean', 'Final/' + kind)
-        return
-    if 'direct' in case:
-        for kind, group in case['direct'].get('evaluations', {}).items():
-            for arm, s in group.items():
-                yield arm, 'Final/' + kind, s, None, False, ('clean', 'Final/' + kind)
-        return
-    # Original pilot, and the pilot portion of the earlier episode workflow.
-    for arm, exposure, memory in [('clean', 'clean_exposure', 'memory_clean'), ('poisoned', 'poisoning_task', 'memory_poison')]:
-        if case.get(exposure):
-            value = dict(case[exposure])
-            value.update(status=value.get('status', 'recorded'), prompt=case.get('followup'),
-                         tool_calls=value.get('tools', value.get('tool_calls', [])))
-            if memory in case:
-                value.update(memory_before=case[memory].get('before', initial), memory_after=case[memory].get('after'), write_enabled=True)
-            yield arm, 'Exposure', value, initial, False, ('clean', 'Exposure')
-    for arm, key in [('clean', 'followup_clean'), ('poisoned', 'followup_poison'), ('memory_off', 'followup_without_memory')]:
-        if key in case:
-            value = dict(case[key], write_enabled=False, memory_enabled=arm != 'memory_off')
-            if 'output' in value and 'answer' not in value:
-                value['answer'] = value['output'].get('answer')
-            yield arm, 'Recall', value, initial, True, ('clean', 'Recall')
-    episode = case.get('episode', {})
-    for arm, branch in episode.get('branches', {}).items():
-        for i, s in enumerate(branch.get('intermediate_sessions', []), 1):
-            value = dict(s, memory_after=s.get('saved'), write_enabled=True)
-            yield arm, f'Intermediate/{i}', value, initial, True, ('clean', f'Intermediate/{i}')
-    for kind, group in episode.get('probes', {}).items():
-        for arm, s in group.items():
-            yield arm, 'Final/' + kind, dict(s, write_enabled=False), initial, True, ('clean', 'Final/' + kind)
+    """Yield current S0, S1-S3 and native Final evidence."""
+    result = case.get('sustained', {})
+    seed = result.get('seed', {}).get('memory_after')
+    if result.get('seed'):
+        yield 'seed', 'S0', result['seed'], seed, False, None
+    for arm, branch in result.get('branches', {}).items():
+        for session in branch.get('sessions', []):
+            stage = f"S{session['slot']}"
+            yield arm, stage, session, seed, False, ('clean', stage)
+    for arm, session in result.get('evaluations', {}).get('native', {}).items():
+        yield arm, 'Final/native', session, seed, False, ('clean', 'Final/native')
 
 
 def _outcome(row):
@@ -198,7 +167,7 @@ def analyze_run(run, reviews=None):
         for condition, stage, value, seed, fixed, control in sessions:
             row = analyze_session(case['task_id'], value, seed, fixed)
             row.update(run_id=run.get('run_id'), task_id=case['task_id'], condition=condition, stage=stage,
-                       workflow=run.get('workflow', 'pilot'), control_key=control)
+                       workflow=run.get('workflow', 'sustained'), control_key=control)
             row['row_id'] = digest([row[k] for k in ('run_id', 'task_id', 'condition', 'stage', 'session_id')])[:24]
             review = reviews.get('rows', {}).get(row['row_id']) if reviews_valid else None
             if review:
@@ -234,7 +203,7 @@ def analyze_run(run, reviews=None):
             # Pair eligibility is descriptive, never used to remove end-to-end observations.
         rows.extend(case_rows)
     return {'schema': VERSION, 'classifier_version': CLASSIFIER_VERSION, 'run_id': run.get('run_id'),
-            'workflow': run.get('workflow', 'pilot'), 'source_sha256': source_hash,
+            'workflow': run.get('workflow', 'sustained'), 'source_sha256': source_hash,
             'source_kind': 'saved_run_summary', 'reviews_stale': bool(reviews) and not reviews_valid,
             'rows': rows, 'reviewed_count': sum(r['review_status'] == 'reviewed' for r in rows),
             'interpretation': 'Separate reanalysis, not a replacement for native utility or original results. '

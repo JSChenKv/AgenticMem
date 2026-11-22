@@ -1,6 +1,6 @@
-"""Analyze all saved workflows without model calls or changes to source runs.
+"""Analyze current three-condition runs without model calls or changes to source runs.
 
-Extends aditya/8183c91's five-stage analysis. V1 reports remain untouched.
+Extends aditya/8183c91's five-stage analysis. The source evidence is never modified.
 V2 reports contain per-session evidence and provisional classifications.
 """
 import argparse
@@ -27,7 +27,7 @@ def render(analyses):
     lines = ['# Five-stage analysis — v2', '',
              'Separate reanalysis of saved evidence. Original summaries and native utility are unchanged.',
              'Automatic asserted-value labels are provisional and require review. Missing data is not a negative outcome.',
-             'Historical workflows remain separate. Do not pool them into an attack success rate.',
+             'Do not pool runs with different configurations into an attack success rate.',
              'Unranked historical retrieval unions are never assigned fabricated per-query ranks.', '']
     for analysis in analyses:
         lines += [f"## {analysis['run_id']}", '',
@@ -50,11 +50,14 @@ def main():
     analyses = []
     for path in sorted(args.source.glob('dojo_*/summary.json')):
         run = json.loads(path.read_text(encoding='utf-8'))
+        if run.get('workflow') != 'sustained':
+            raise ValueError(f'Unsupported workflow in {path.parent.name}')
         review_path = path.parent / 'analysis-reviews.json'
         reviews = json.loads(review_path.read_text(encoding='utf-8')) if review_path.exists() else None
         analyses.append(analyze_run(run, reviews))
     if not analyses:
-        raise ValueError('No saved run summaries found')
+        print('No saved runs to analyze. Start and export a three-condition experiment first.')
+        return
     args.output.mkdir(parents=True, exist_ok=True)
     output = {'schema': VERSION, 'classifier_version': CLASSIFIER_VERSION, 'analyses': analyses}
     (args.output / 'pipeline_stages_v2.json').write_text(json.dumps(output, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')

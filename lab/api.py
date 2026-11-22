@@ -159,11 +159,9 @@ def memories(experiment: str = 'default', user: str = 'researcher'):
 
 class BenchmarkRequest(AgentSettings):
     tasks: list[Literal['user_task_14', 'user_task_30']] = Field(min_length=1, max_length=2)
-    exposure_policy: Literal['reference', 'agent'] = 'reference'
-    workflow: Literal['pilot', 'episode', 'autonomous', 'direct', 'sustained'] = 'sustained'
-    delay_tasks: Literal[0, 1, 3] = 0
-    evaluation_tools: Literal['workspace', 'memory_only'] = 'workspace'
-    source_run_id: str = Field(default='', pattern=r'^(?:dojo_\d{8}_\d{6}_[a-f0-9]{6})?$')
+    exposure_policy: Literal['agent'] = 'agent'
+    workflow: Literal['sustained'] = 'sustained'
+    evaluation_tools: Literal['workspace'] = 'workspace'
 
 
 @app.get('/agents')
@@ -182,8 +180,7 @@ def start_benchmark(query: BenchmarkRequest):
     with lock:
         try:
             return jobs.start(query.tasks, query.exposure_policy, query.agent_backend, query.agent_model,
-                              query.memory_backend, query.memory_model, query.workflow, query.delay_tasks, query.evaluation_tools,
-                              **({'source_run_id': query.source_run_id} if query.source_run_id else {}))
+                              query.memory_backend, query.memory_model, query.workflow, query.evaluation_tools)
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:

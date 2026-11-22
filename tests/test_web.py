@@ -14,7 +14,9 @@ def test_english_pages_and_assets_are_served():
     assert client.get('/assets/style.css').status_code == 200
     page = client.get('/benchmark')
     assert page.status_code == 200
-    assert 'Controlled reference reads' in page.text
+    assert 'Controlled reference reads' not in page.text
+    assert 'Reminder draft' not in page.text
+    assert 'Structured plan' not in page.text
     assert client.get('/assets/benchmark.js').status_code == 200
 
 
