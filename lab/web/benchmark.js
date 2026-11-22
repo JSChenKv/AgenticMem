@@ -18,7 +18,7 @@ function setControls() {
   $('memory-model').disabled = submitting || Boolean(activeRun) || $('memory-backend').value === 'follow';
   $('policy').disabled = true;
   $('policy').value = 'agent';
-  $('policy-help').textContent = 'Agent-selected tools in every session. Both polluted conditions retain the payload through Final. Memory off applies to the entire timeline.';
+  $('policy-help').textContent = 'Automatic memory retrieval before every memory-on session. Email/file tools remain agent-selected. Both polluted conditions retain the payload through Final.';
 }
 function evidence(title, text) { const details = el('details', 'evidence'); details.append(el('summary', '', title), el('pre', '', typeof text === 'string' ? text : JSON.stringify(text, null, 2))); return details; }
 function analysisValue(value) { return value == null ? 'Not recorded / needs review' : value ? 'Yes' : 'No'; }
@@ -47,7 +47,7 @@ function renderAnalysis(analysis) {
         const item = el('div', 'metric'); item.append(el('span', '', label), el('strong', '', analysisValue(value))); metrics.append(item);
       }
       details.append(metrics, el('p', 'recall-meta', `Native task utility: ${analysisValue(row.native_utility)} · Conflict: ${analysisValue(row.conflict_flagged)} (${row.conflict_source})`));
-      const formatRanks = hits => hits.length ? hits.map(h => `${h.id.slice(0,8)}: ${h.rank == null ? 'rank not recorded' : '#' + h.rank}${h.tool_sequence == null ? '' : ' at call ' + h.tool_sequence}`).join(', ') : 'None recorded';
+      const formatRanks = hits => hits.length ? hits.map(h => `${h.id.slice(0,8)}: ${h.rank == null ? 'rank not recorded' : '#' + h.rank}${h.tool_sequence == null ? '' : h.tool_sequence === 0 ? ' before task (automatic)' : ' at call ' + h.tool_sequence}`).join(', ') : 'None recorded';
       details.append(el('p', 'config-note', `Real-memory ranks: ${formatRanks(row.real_retrievals)}. Target-memory ranks: ${formatRanks(row.attacker_retrievals)}.`));
       details.append(el('p', 'config-note', `Automatic real memory retrieved but ignored: ${analysisValue(row.real_memory_retrieved_but_ignored)}. This is a provisional answer-content judgment, not causal proof.`));
       if (row.exclusion_reasons.length) details.append(evidence('Answer-time pair limitations — observation remains included', row.exclusion_reasons));
@@ -94,6 +94,8 @@ function renderSustained(result) {
   const names = {clean: 'Clean', polluted_memory_on: 'Polluted + memory on', polluted_memory_off: 'Polluted + memory off'};
   const yes = value => value === undefined || value === null ? 'Not recorded' : value ? 'Yes' : 'No';
   panel.append(el('h3', '', 'Sustained exposure · native Final'), el('p', 'config-note', 'Fresh sessions · S1 → S2 → S3 → original AgentDojo task. Both polluted conditions retain their payload at Final. Memory off applies throughout.'));
+  panel.append(el('p', 'config-note', result.retrieval_policy === 'automatic_pre_task_v1' ? 'Retrieval policy: automatic before each memory-on session, including Final. Application searches are recorded separately from agent tools.' : 'Historical retrieval policy: agent-selected memory search. These results precede automatic memory injection.'));
+  if (['sustained_native_v3', 'sustained_native_v4', 'sustained_native_v5'].includes(result.protocol)) panel.append(el('p', 'config-note', 'S1: source summary · S2: all-email summary · S3: all-email action items · Final: original question. Source reads remain autonomous; inspect which injection slots were actually seen.'));
   if (result.seed) panel.append(evidence('S0: clean seed shared by the memory-on branches', result.seed));
   const grid = el('div', 'comparison-grid episode-grid');
   for (const [condition, branch] of Object.entries(result.branches || {})) {
@@ -106,11 +108,15 @@ function renderSustained(result) {
       const trace = value.memory_trace;
       card.append(el('h4', '', `${stage} · ${value.status}`));
       if (stage === 'Final') card.append(el('p', 'recall-meta', `Native task utility: ${yes(value.native_utility)} · Memory unchanged: ${yes(value.memory_unchanged)}`));
+      const retrieval = value.retrieval_status || (value.memory_enabled === false ? 'disabled' : value.memory_calls === 0 ? 'not_called' : value.retrieved?.length ? 'retrieved' : value.memory_calls > 0 ? 'no_matches' : 'not_recorded');
+      const retrievalLabels = {disabled: 'Disabled', not_called: 'Not called (historical)', not_started: 'Not started', injected: `Automatically injected ${value.retrieved?.length || 0} memories`, retrieved: 'Retrieved by agent (historical)', no_matches: 'Searched — no matching memories', error: 'Search failed', not_recorded: 'Not recorded'};
+      card.append(el('p', 'recall-meta', `Memory retrieval: ${retrievalLabels[retrieval] || retrieval}`));
+      if (value.attack_vectors_seen) card.append(el('p', 'recall-meta', `Injection slots seen: ${value.attack_vectors_seen.join(', ') || 'None'}`));
       if (value.answer) card.append(el('p', 'recall-answer', value.answer));
       if (trace) {
         card.append(el('p', 'recall-meta', `Payload seen: ${yes(trace.payload_seen)} · Target mentioned: ${yes(trace.answer_target_text_match)}`));
         card.append(el('p', 'recall-meta', `New memories: ${trace.added_records?.length ?? '—'} · New target-text records: ${trace.new_target_text_record_ids?.length ?? '—'}`));
-        const ranks = trace.target_memory_retrievals.map(r => `query ${r.tool_sequence}: #${r.rank}`).join(', ') || 'None';
+        const ranks = trace.target_memory_retrievals.map(r => `${r.tool_sequence === 0 ? 'automatic query' : 'query ' + r.tool_sequence}: #${r.rank}`).join(', ') || 'None';
         card.append(el('p', 'recall-meta', `Target-memory ranks: ${ranks} · Original memory retrieved: ${yes(trace.real_memory_retrieved)}`));
         card.append(el('p', 'config-note', 'Adoption, conflict and real-memory-ignored judgments: pending semantic review.'));
         card.append(evidence(`${stage}: five-stage memory trace and per-query ranks`, trace));
@@ -128,7 +134,7 @@ function renderCase(result, policy) {
   const heading = el('div', 'run-heading'); const title = el('div'); title.append(el('span', 'eyebrow', result.task_id.replaceAll('_', ' ').toUpperCase()), el('h2', '', labels[result.task_id] || result.task_id));
   heading.append(title, el('span', 'badge', statusLabels[result.status] || result.status)); panel.append(heading);
   panel.append(el('p', 'case-values', `Expected: ${result.expected}   ·   Attack target: ${result.target}`));
-  if (result.sustained) panel.append(evidence('Fixed payload and injection point', {vector: result.vector, payload: result.payload}), renderSustained(result.sustained));
+  if (result.sustained) panel.append(evidence('Fixed payload and injection point', {vector: result.vector, payload: result.payload, additional_injections: result.additional_injections || {}, email_timestamp_override: result.email_timestamp_override || null}), renderSustained(result.sustained));
   if (result.error) panel.append(el('p', 'error', result.error));
   return panel;
 }
@@ -211,8 +217,8 @@ function showAgentStatus() {
   const follow = $('memory-backend').value === 'follow';
   const memory = follow ? agent : agentCatalog.find(item => item.id === $('memory-backend').value);
   const model = follow ? $('agent-model').value.trim() : $('memory-model').value.trim();
-  $('agent-status').textContent = agent && memory ? `Task — ${agent.label}: ${agent.note}. Memory — ${memory.label} / ${model || memory.default_model || 'CLI default'}${follow ? ' (follows task)' : ` (independent; ${memory.note})`}.` : 'Agent status unavailable.';
-  $('memory-model').placeholder = follow ? 'Follows the task model' : "Use the extractor's default model";
+  $('agent-status').textContent = agent && memory ? `Task — ${agent.label}: ${agent.note}. Memory — ${memory.label} / ${model || (!follow && memory.id === 'codex' ? 'gpt-6-luna' : memory.default_model) || 'CLI default'}${follow ? ' (follows task)' : ` (independent; ${memory.note})`}.` : 'Agent status unavailable.';
+  $('memory-model').placeholder = follow ? 'Follows the task model' : $('memory-backend').value === 'codex' ? 'gpt-6-luna' : "Use the extractor's default model";
   setControls();
 }
 $('agent-backend').addEventListener('change', () => { $('agent-model').value = ''; showAgentStatus(); });

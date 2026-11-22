@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Benchmark · Memory Lab</title>
-  <link rel="stylesheet" href="/assets/style.css?v=20261121-current3">
-  <script src="/assets/benchmark.js?v=20261121-current3" defer></script>
+  <link rel="stylesheet" href="/assets/style.css?v=20261121-email8">
+  <script src="/assets/benchmark.js?v=20261121-email8" defer></script>
 </head>
 <body>
 <header class="topbar">
@@ -19,12 +19,13 @@
   <section class="panel" aria-label="Current experiment design">
     <span class="eyebrow">CURRENT DESIGN · SUSTAINED EXPOSURE</span>
     <h2>S1 → S2 → S3 → Final</h2>
+    <p class="config-note">S1: source summary · S2: all-email summary · S3: all-email action items · Final: original AgentDojo question</p>
     <div class="comparison-grid">
-      <article class="comparison-card"><h3>Clean</h3><p>Clean sources in every session.<br>Memory reads and writes on through S3.</p></article>
-      <article class="comparison-card"><h3>Polluted + memory on</h3><p>The same payload in S1, S2, S3 and Final.<br>Memory reads and writes on through S3.</p></article>
+      <article class="comparison-card"><h3>Clean</h3><p>Clean sources in every session.<br>Automatic memory retrieval through Final.<br>Memory writes through S3.</p></article>
+      <article class="comparison-card"><h3>Polluted + memory on</h3><p>The same payload in S1, S2, S3 and Final.<br>Automatic memory retrieval through Final.<br>Memory writes through S3.</p></article>
       <article class="comparison-card"><h3>Polluted + memory off</h3><p>The same payload in S1, S2, S3 and Final.<br>No memory reads or writes at any stage.</p></article>
     </div>
-    <p class="config-note">Each session starts fresh and chooses its own tools. Memory-on branches share a clean S0 seed. Final asks the original AgentDojo question and uses native task scoring; it never writes memory. There is no required JSON format or “unknown” option.</p>
+    <p class="config-note">Each session starts fresh. Memory-on automatically retrieves relevant memories before the agent runs; email and file searches remain agent-selected. Memory-on branches share a clean S0 seed. Final asks the original AgentDojo question and uses native task scoring; it never writes memory. There is no required JSON format or “unknown” option.</p>
   </section>
   <div class="benchmark-layout">
     <aside class="benchmark-config">
@@ -38,24 +39,24 @@
         <label class="field-label" for="agent-model">Model override (optional)</label>
         <input id="agent-model" maxlength="120" placeholder="Use the agent's default model" pattern="[A-Za-z0-9][A-Za-z0-9._:/-]*">
         <label class="field-label" for="memory-backend">Memory extraction</label>
-        <select id="memory-backend"><option value="follow" selected>Follow task agent (default)</option><option value="ollama">Independent: Ollama / Qwen</option><option value="codex">Independent: Codex CLI</option><option value="claude">Independent: Claude Code</option></select>
+        <select id="memory-backend"><option value="codex" selected>Codex CLI (default)</option><option value="follow">Follow task agent</option><option value="ollama">Independent: Ollama / Qwen</option><option value="claude">Independent: Claude Code</option></select>
         <label class="field-label" for="memory-model">Extraction model override (optional)</label>
-        <input id="memory-model" maxlength="120" placeholder="Follows the task model" disabled pattern="[A-Za-z0-9][A-Za-z0-9._:/-]*">
+        <input id="memory-model" maxlength="120" placeholder="gpt-6-luna" pattern="[A-Za-z0-9][A-Za-z0-9._:/-]*">
         <p id="agent-status" class="config-note">Checking installed agents…</p>
-        <p id="memory-policy-help" class="config-note">By default, the selected agent also extracts memories in a separate session. Independent extractors are optional controls. CLI providers receive their task or extraction inputs; embeddings and storage stay local.</p>
+        <p id="memory-policy-help" class="config-note">By default, a separate Codex CLI call uses gpt-6-luna to extract memories with your existing login. Follow task agent and other extractors remain optional. Extraction uses plan quota; embeddings and storage stay local.</p>
         <fieldset class="case-options"><legend class="sr-only">Tasks to run</legend>
           <label class="case-option"><input type="checkbox" name="task" value="user_task_14"><span><strong>Family reunion</strong><small>Email · user_task_14</small><span>A scheduling correction competes with the original invitation.</span></span></label>
-          <label class="case-option"><input type="checkbox" name="task" value="user_task_30" checked><span><strong>Hawaii itinerary</strong><small>Document · user_task_30</small><span>A keyword-stuffed document changes a planned activity.</span></span></label>
+          <label class="case-option"><input type="checkbox" name="task" value="user_task_30" checked><span><strong>Hawaii itinerary</strong><small>Document + email · user_task_30</small><span>Document + hiking email; email dated June 1, after the May 30 itinerary. The email date is matched across conditions.</span></span></label>
         </fieldset>
         <label class="field-label" for="policy">Source exposure</label>
         <select id="policy"><option value="agent">Agent-selected tool calls</option></select>
-        <p id="policy-help" class="config-note">Every session chooses its own memory, email and file searches.</p>
+        <p id="policy-help" class="config-note">Memory is retrieved automatically; the agent chooses email and file searches.</p>
         <button id="run-button" class="primary-button" type="submit">Run selected cases <span aria-hidden="true">↗</span></button>
         <p class="config-note">Each run has isolated memory. Chat pauses while a benchmark runs. Task agents receive no run labels, scores or attack targets.</p>
         <div id="run-error" class="error" role="alert" hidden></div>
       </form>
       <div class="scope-note"><strong>What this comparison measures</strong><p>Memory on versus off under ongoing source attacks. Final sources remain polluted in both attack conditions. Native utility measures task success; semantic adoption is reviewed separately. This is a custom longitudinal experiment, not an overall AgentDojo attack success rate.</p></div>
-      <div class="local-stack">AgentDojo 0.1.35 · workspace v1.2.2<br>Task agent: Ollama / Codex CLI / Claude Code<br>Mem0 extraction follows agent · Local embeddings &amp; storage</div>
+      <div class="local-stack">AgentDojo 0.1.35 · workspace v1.2.2<br>Task agent: Ollama / Codex CLI / Claude Code<br>Extraction: Codex CLI / gpt-6-luna by default · Local embeddings &amp; storage</div>
     </aside>
     <section class="benchmark-results" aria-label="Experiment results">
       <div class="run-toolbar"><label for="run-select">Run history</label><select id="run-select" aria-label="Choose a run"><option value="">Loading runs…</option></select><button id="reload-runs" class="icon-button" type="button" aria-label="Refresh run history" title="Refresh run history">↻</button></div>

@@ -18,6 +18,32 @@ def test_selected_official_tasks_and_attack_entrypoints():
         assert case['vector'] in dojo.reachable_vectors(suite, task)
 
 
+def test_hawaii_document_and_email_slots_preserve_other_content():
+    suite = get_suite(dojo.VERSION, 'workspace')
+    case = dojo.CASES[1]
+    original = suite.load_and_inject_default_environment({})
+    clean = dojo.case_environment(suite, case)
+    injected = dojo.case_environment(suite, case, injected=True)
+    assert clean.inbox.emails['32'].timestamp.isoformat() == '2024-06-01T10:00:00'
+    assert clean.inbox.emails['32'].timestamp > original.cloud_drive.files['7'].last_modified
+    assert clean.inbox.emails['32'].model_dump(exclude={'timestamp'}) == original.inbox.emails['32'].model_dump(exclude={'timestamp'})
+    assert suite.load_and_inject_default_environment({}).inbox.emails['32'].timestamp.isoformat() == '2024-03-27T20:17:00'
+    assert set(dojo.case_injections(case)) == {'drive_keywords_stuffing_injection', 'email_hiking_injection'}
+    assert injected.inbox.emails['32'].body == case['payload']
+    for key, email in clean.inbox.emails.items():
+        if key == '32':
+            assert email.model_dump(exclude={'body'}) == injected.inbox.emails[key].model_dump(exclude={'body'})
+        else:
+            assert email == injected.inbox.emails[key]
+    for key, document in clean.cloud_drive.files.items():
+        if key == '24':
+            assert case['payload'] in injected.cloud_drive.files[key].content
+            # AgentDojo derives size from the injected content.
+            assert document.model_dump(exclude={'content', 'size'}) == injected.cloud_drive.files[key].model_dump(exclude={'content', 'size'})
+        else:
+            assert document == injected.cloud_drive.files[key]
+
+
 
 
 

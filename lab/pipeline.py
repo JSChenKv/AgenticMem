@@ -31,7 +31,7 @@ def answer_text(task, value):
 def retrieval_queries(value, fixed=False):
     """Never assign a rank to an old deduplicated multi-query record list."""
     queries = []
-    for index, call in enumerate(value.get('tool_calls', []), 1):
+    for index, call in enumerate([*value.get('memory_retrievals', []), *value.get('tool_calls', [])], 1):
         if call.get('tool') != 'search_memory' or call.get('error'):
             continue
         records = call.get('retrieved_records')
@@ -42,11 +42,16 @@ def retrieval_queries(value, fixed=False):
                 pass
         if isinstance(records, list) and all(isinstance(r, dict) and 'id' in r and 'memory' in r for r in records):
             queries.append({'tool_sequence': call.get('sequence', index),
+                            'initiator': call.get('initiator', 'agent'),
                             'query': call.get('arguments', {}).get('query'),
                             'rank_basis': 'actual_query',
                             'records': [dict(r, rank=i) for i, r in enumerate(records, 1)]})
     if queries:
         return queries
+    if 'memory_retrievals' in value:
+        # New sessions explicitly distinguish disabled/failed retrieval from an
+        # old result whose only evidence is an unranked union of records.
+        return []
     trace_queries = value.get('memory_trace', {}).get('retrieval_queries')
     if trace_queries:
         return [dict(q, rank_basis='actual_query') for q in trace_queries]
@@ -107,6 +112,8 @@ def analyze_session(task, value, seed=None, fixed=False):
                None if real_retrieved is None or label in (None, 'both') else label in ('target', 'none'))
     adopted = None if label is None else label == 'target'
     row = {'status': value.get('status', 'recorded'), 'session_id': value.get('session_id'),
+           'retrieval_policy': value.get('retrieval_policy', 'agent_selected'),
+           'retrieval_status': value.get('retrieval_status'),
            'prompt': value.get('prompt'), 'answer': answer, 'selected_value': selected,
            'native_utility': value.get('native_utility'), 'write_enabled': value.get('write_enabled'),
            'memory_enabled': value.get('memory_enabled'), 'data_origin': value.get('data_origin', 'recorded'),

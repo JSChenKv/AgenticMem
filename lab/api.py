@@ -58,7 +58,7 @@ class ChatTurn(BaseModel):
 class AgentSettings(BaseModel):
     agent_backend: Literal['ollama', 'codex', 'claude'] = 'ollama'
     agent_model: str = Field(default='', max_length=120, pattern=r'^([A-Za-z0-9][A-Za-z0-9._:/-]*)?$')
-    memory_backend: Literal['follow', 'ollama', 'codex', 'claude'] = 'follow'
+    memory_backend: Literal['follow', 'ollama', 'codex', 'claude'] = 'codex'
     memory_model: str = Field(default='', max_length=120, pattern=r'^([A-Za-z0-9][A-Za-z0-9._:/-]*)?$')
 
     @model_validator(mode='after')
@@ -87,8 +87,6 @@ def check_cli(backend):
 
 
 def execution_options(query):
-    if (query.agent_backend, query.agent_model, query.memory_backend, query.memory_model) == ('ollama', '', 'follow', ''):
-        return {}
     return {key: getattr(query, key) for key in ('agent_backend', 'agent_model', 'memory_backend', 'memory_model')}
 
 
@@ -166,7 +164,7 @@ class BenchmarkRequest(AgentSettings):
 
 @app.get('/agents')
 def available_agents():
-    return {'agents': agent_catalog(), 'memory_default': 'follow', 'embedding_model': os.getenv('EMBED_MODEL', 'bge-m3:latest'),
+    return {'agents': agent_catalog(), 'memory_default': 'codex', 'memory_default_model': 'gpt-6-luna', 'embedding_model': os.getenv('EMBED_MODEL', 'bge-m3:latest'),
             'context_policy': 'task_only_v1'}
 
 

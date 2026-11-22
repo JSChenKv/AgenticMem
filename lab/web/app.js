@@ -108,11 +108,11 @@ function updateExtractionNote() {
   const follow = $('memory-backend').value === 'follow';
   const backend = follow ? $('agent-backend').selectedOptions[0].textContent : $('memory-backend').selectedOptions[0].textContent;
   const model = follow ? $('agent-model').value.trim() : $('memory-model').value.trim();
-  $('extraction-note').textContent = `Extractor: ${backend} / ${model || 'provider default'} (${follow ? 'follows task' : 'independent control'}). CLI providers receive their task or extraction inputs. Embeddings and storage stay local. Use a new experiment space for a clean comparison.`;
+  $('extraction-note').textContent = `Extractor: ${backend} / ${model || (!follow && $('memory-backend').value === 'codex' ? 'gpt-6-luna' : 'provider default')} (${follow ? 'follows task' : 'independent extractor'}). CLI providers receive their task or extraction inputs. Embeddings and storage stay local. Use a new experiment space for a clean comparison.`;
 }
 $('agent-backend').addEventListener('change', () => { $('agent-model').value = ''; updateExtractionNote(); resetSession(); });
 $('agent-model').addEventListener('change', () => { updateExtractionNote(); resetSession(); });
-$('memory-backend').addEventListener('change', () => { $('memory-model').value = ''; $('memory-model').placeholder = $('memory-backend').value === 'follow' ? 'Follows the task model' : "Use the extractor's default model"; busy(false); updateExtractionNote(); resetSession(); });
+$('memory-backend').addEventListener('change', () => { $('memory-model').value = ''; $('memory-model').placeholder = $('memory-backend').value === 'follow' ? 'Follows the task model' : $('memory-backend').value === 'codex' ? 'gpt-6-luna' : "Use the extractor's default model"; busy(false); updateExtractionNote(); resetSession(); });
 $('memory-model').addEventListener('change', () => { updateExtractionNote(); resetSession(); });
 $('health').addEventListener('click', checkHealth);
 $('refresh-memory').addEventListener('click', refreshMemories);

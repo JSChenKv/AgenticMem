@@ -11,17 +11,21 @@ from lab import agents, api, core
 
 @pytest.mark.parametrize('backend,model', [('codex', 'codex-model'), ('claude', 'claude-model'), ('ollama', 'local-model')])
 def test_follow_copies_provider_and_model(backend, model):
-    assert agents.resolve_extraction(backend, model) == {'mode': 'follow', 'backend': backend, 'model': model}
+    assert agents.resolve_extraction(backend, model, 'follow') == {'mode': 'follow', 'backend': backend, 'model': model}
 
 
 def test_defaults_and_explicit_independent_models(monkeypatch):
     monkeypatch.setenv('CODEX_MODEL', 'codex-default')
     monkeypatch.setenv('CHAT_MODEL', 'qwen2.5:7b')
-    assert agents.resolve_extraction('codex')['model'] == 'codex-default'
+    assert agents.resolve_extraction('codex')['model'] == 'gpt-6-luna'
+    assert agents.resolve_extraction('codex', '', 'follow')['model'] == 'codex-default'
+    for task in ('ollama', 'codex', 'claude'):
+        assert agents.resolve_extraction(task, 'task-model') == {
+            'mode': 'codex', 'backend': 'codex', 'model': 'gpt-6-luna'}
     assert agents.resolve_extraction('codex', 'task-model', 'ollama') == {
         'mode': 'ollama', 'backend': 'ollama', 'model': 'qwen2.5:7b'}
     assert agents.resolve_extraction('codex', 'task-model', 'claude', 'extract-model')['model'] == 'extract-model'
-    assert agents.resolve_extraction('codex', 'task-model', 'codex')['model'] == 'codex-default'
+    assert agents.resolve_extraction('codex', 'task-model', 'codex')['model'] == 'gpt-6-luna'
     with pytest.raises(ValueError, match='independent'):
         agents.resolve_extraction('codex', 'task-model', 'follow', 'different-model')
 
@@ -43,7 +47,7 @@ def test_mem0_adapter_routes_extraction_to_cli_without_ollama(monkeypatch, backe
             return ChatResponse(message=Message(role='assistant', content='{"memory":[{"text":"User prefers Python"}]}'))
 
     monkeypatch.setattr(core, 'CliClient', Client)
-    lab.configure_extraction(agents.resolve_extraction(backend, 'chosen-model'))
+    lab.configure_extraction(agents.resolve_extraction(backend, 'chosen-model', 'follow'))
     messages = [{'role': 'system', 'content': 'Extract facts.'}, {'role': 'user', 'content': 'I prefer Python.'}]
     output = lab.memory.llm.generate_response(messages, response_format={'type': 'json_object'})
     assert json.loads(output)['memory'][0]['text'] == 'User prefers Python'
@@ -88,9 +92,9 @@ def test_chat_write_and_memory_endpoint_share_selected_extractor(monkeypatch):
     client = TestClient(api.app)
     query = {'text': 'I prefer Python', 'mode': 'write', 'agent_backend': 'codex', 'agent_model': 'task-model'}
     assert client.post('/chat', json=query).status_code == 200
-    assert calls[-1][1]['memory_backend'] == 'follow'
+    assert calls[-1][1]['memory_backend'] == 'codex'
     assert client.post('/memories', json=query).status_code == 200
-    assert calls[-1][1]['extraction'] == {'mode': 'follow', 'backend': 'codex', 'model': 'task-model'}
+    assert calls[-1][1]['extraction'] == {'mode': 'codex', 'backend': 'codex', 'model': 'gpt-6-luna'}
     assert client.post('/memories', json={**query, 'memory_backend': 'claude', 'memory_model': 'extract-model'}).status_code == 200
     assert calls[-1][1]['extraction'] == {'mode': 'claude', 'backend': 'claude', 'model': 'extract-model'}
 
@@ -102,7 +106,7 @@ def test_invalid_extraction_inputs_fail_before_any_work():
         assert client.post('/benchmarks', json={'tasks': ['user_task_14'], **invalid}).status_code == 422
 
 
-def test_chat_write_routes_follow_and_control_without_reusing_cached_extractor():
+def test_chat_write_routes_default_and_control_without_reusing_cached_extractor():
     lab = object.__new__(core.Lab)
     lab.agent_backend, lab.agent_model, lab.model = 'codex', 'task-model', 'qwen2.5:7b'
     lab.default_extraction = agents.resolve_extraction('codex', 'task-model')
@@ -115,4 +119,22 @@ def test_chat_write_routes_follow_and_control_without_reusing_cached_extractor()
     lab.ask('user', 'I prefer tea', mode='write', memory_backend='ollama', memory_model='local-extractor')
     lab.ask('user', 'I prefer coffee', mode='write')
     assert [c['backend'] for c in calls] == ['codex', 'ollama', 'codex']
-    assert [c['model'] for c in calls] == ['task-model', 'local-extractor', 'task-model']
+    assert [c['model'] for c in calls] == ['gpt-6-luna', 'local-extractor', 'gpt-6-luna']
+
+
+def test_api_defaults_are_explicit_even_with_legacy_environment(monkeypatch):
+    monkeypatch.setenv('MEMORY_BACKEND', 'follow')
+    monkeypatch.setenv('MEMORY_MODEL', 'old-model')
+    query = api.Query(text='Hello')
+    options = api.execution_options(query)
+    assert options['memory_backend'] == 'codex'
+    assert agents.resolve_extraction(**options)['model'] == 'gpt-6-luna'
+
+
+def test_memory_search_uses_sdk_defaults_and_keeps_user_scope():
+    calls = []
+    lab = object.__new__(core.Lab)
+    lab.memory = SimpleNamespace(search=lambda query, **options: calls.append((query, options)) or {'results': []})
+    lab.record = lambda *a, **kw: None
+    assert lab.search('alice', 'Hawaii') == {'results': []}
+    assert calls == [('Hawaii', {'filters': {'user_id': 'alice'}})]

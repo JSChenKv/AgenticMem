@@ -14,7 +14,7 @@ import portalocker
 from lab.core import ROOT
 from lab.agents import validate_agent, cli_path, cli_status, resolve_extraction
 
-TASKS = {'user_task_14': 'Family reunion · Email', 'user_task_30': 'Hawaii itinerary · Document'}
+TASKS = {'user_task_14': 'Family reunion · Email', 'user_task_30': 'Hawaii itinerary · Document + email'}
 RUN_PATTERN = re.compile(r'^dojo_\d{8}_\d{6}_[a-f0-9]{6}$')
 
 
@@ -64,7 +64,7 @@ class BenchmarkJobs:
                 owner = read_json(self.root / 'data' / 'benchmark-owner.json') or {}
                 return owner.get('run_id', 'external')
 
-    def start(self, tasks, policy, agent_backend='ollama', agent_model='', memory_backend='follow', memory_model='', workflow='sustained', evaluation_tools='workspace'):
+    def start(self, tasks, policy, agent_backend='ollama', agent_model='', memory_backend='codex', memory_model='', workflow='sustained', evaluation_tools='workspace'):
         if workflow != 'sustained' or policy != 'agent':
             raise ValueError('Only sustained exposure with agent-selected tools is supported')
         if evaluation_tools != 'workspace':

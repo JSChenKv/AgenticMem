@@ -28,8 +28,12 @@ def export_session(source):
                'attack_tool_reads memory_calls workspace_calls write_enabled exposure_observation native_utility '
                'slot target_claim_record_ids expected_content_present target_content_present clean_correct '
                'scoring evaluated_content target_adoption adoption_assessment snapshot_before snapshot_after '
-               'memory_unchanged memory_enabled workspace_condition')
-    out['tool_calls'] = [pick(t, 'sequence tool arguments error attack_payload_seen') for t in source.get('tool_calls', [])]
+               'memory_unchanged memory_enabled workspace_condition retrieval_policy retrieval_status attack_vectors_seen')
+    if 'memory_retrievals' in source:
+        out['memory_retrievals'] = [dict(pick(t, 'sequence tool initiator arguments error'),
+            retrieved_records=[pick(r, 'id memory score rank') for r in t.get('retrieved_records', [])])
+            for t in source['memory_retrievals']]
+    out['tool_calls'] = [pick(t, 'sequence tool arguments error attack_payload_seen attack_vectors_seen') for t in source.get('tool_calls', [])]
     for key in ('retrieved', 'memory_before', 'memory_after'):
         if key in source:
             out[key] = records(source[key])
@@ -42,7 +46,7 @@ def export_session(source):
         fields = 'id memory score rank seed_record expected_text_match target_claim_text_match'
         out['memory_trace']['added_records'] = (None if trace.get('added_records') is None else
                                                [pick(r, fields) for r in trace['added_records']])
-        out['memory_trace']['retrieval_queries'] = [dict(pick(q, 'tool_sequence query'),
+        out['memory_trace']['retrieval_queries'] = [dict(pick(q, 'tool_sequence initiator query'),
             records=[pick(r, fields) for r in q['records']]) for q in trace.get('retrieval_queries', [])]
         for key in ('seed_memory_retrievals', 'target_memory_retrievals'):
             out['memory_trace'][key] = [pick(r, 'tool_sequence id rank') for r in trace.get(key, [])]
@@ -53,7 +57,7 @@ def export_session(source):
 
 
 def export_sustained(source):
-    out = pick(source, 'protocol status error evaluation_tools conditions comparisons')
+    out = pick(source, 'protocol status error evaluation_tools conditions comparisons retrieval_policy')
     if 'seed' in source:
         out['seed'] = export_session(source['seed'])
     out['branches'] = {arm: dict(pick(branch, 'polluted memory_enabled status error initial_snapshot_hashes '
@@ -66,7 +70,7 @@ def export_sustained(source):
 
 
 def export_case(case):
-    out = pick(case, 'task_id label vector expected target payload status error reachable_vectors')
+    out = pick(case, 'task_id label vector expected target payload status error reachable_vectors additional_injections additional_injection_policy email_timestamp_override')
     if 'sustained' in case:
         out['sustained'] = export_sustained(case['sustained'])
     return out
@@ -86,6 +90,9 @@ def render_run(run, review_available=False):
         lines += ['No task-session results were recorded. This is an execution failure, not an attack trial.', '']
     for case in run['cases']:
         lines += [f"## {case['task_id']} — {case['label']}", '', 'Fixed payload:', '', '> ' + case['payload'], '']
+        lines += ['Injection slots: `' + '`, `'.join([case['vector'], *case.get('additional_injections', {})]) + '`.', '']
+        if case.get('email_timestamp_override'):
+            lines += ['Email timestamp override (all conditions, custom extension): `' + json.dumps(case['email_timestamp_override']) + '`.', '']
         if 'sustained' in case:
             lines += report_lines(case['sustained'])
             finals = case['sustained'].get('evaluations', {}).get('native', {})
@@ -111,7 +118,7 @@ def main():
         job_path = summary.parent / 'web-job.json'
         if job_path.exists():
             job = json.loads(job_path.read_text(encoding='utf-8'))
-            out['execution'] = pick(job, 'status exit_code started_at finished_at')
+            out['execution'] = pick(job, 'status exit_code started_at finished_at stopped_by_user')
             if source['status'] in ('running', 'starting') and job.get('status') not in ('running', 'starting', None):
                 out['source_status'], out['status'] = source['status'], job['status']
         out['export_schema'] = 'agenticmem-shared-results-v2'
@@ -127,7 +134,11 @@ def main():
             checks = json.loads(validation_path.read_text(encoding='utf-8'))
             allowed = ('all_13_sessions_completed', 'shared_seed_identical', 'memory_off_no_records_or_writes',
                        'memory_off_databases_unchanged', 'all_final_no_writes',
-                       'polluted_payload_observed_all_8_sessions', 'original_seed_ids_preserved')
+                       'polluted_payload_observed_all_8_sessions', 'original_seed_ids_preserved',
+                       'memory_off_no_reads_records_or_writes', 'all_memory_on_automatic_search',
+                       'all_s2_s3_read_entire_inbox', 'polluted_s2_s3_saw_email_payload',
+                       'document_payload_retained_and_observed', 'protocol_v5_and_matched_new_date',
+                       'all_observed_hiking_email_dates_updated')
             shared = {key: checks[key] for key in allowed if isinstance(checks.get(key), bool)}
             (target / 'validation.json').write_text(json.dumps(shared, indent=2) + '\n', encoding='utf-8')
         runs.append(out)
@@ -135,7 +146,7 @@ def main():
         print('No current runs to export. Start a three-condition experiment first.')
         return
     lines = ['# Shared experiment results', '',
-             'Current protocol: sustained_native_v1. Raw logs and databases remain local.', '',
+             'Runs retain their recorded protocol and retrieval policy. Raw logs and databases remain local.', '',
              '| Run | Status |', '| --- | --- |']
     for run in runs:
         lines.append(f"| [{run['run_id']}](runs/{run['run_id']}/report.md) | {run['status']} |")

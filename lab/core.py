@@ -68,7 +68,7 @@ class Lab:
         self.agent_backend = os.getenv('AGENT_BACKEND', 'ollama')
         self.agent_model = os.getenv('AGENT_MODEL', '')
         self.default_extraction = resolve_extraction(self.agent_backend, self.agent_model,
-            os.getenv('MEMORY_BACKEND', 'follow'), os.getenv('MEMORY_MODEL', ''))
+            os.getenv('MEMORY_BACKEND', 'codex'), os.getenv('MEMORY_MODEL', ''))
         self.embed_model = os.getenv('EMBED_MODEL', 'bge-m3:latest')
         self.client = Client(host=self.url, timeout=240)
         # No implicit SDK model downloads during research runs.
@@ -113,7 +113,7 @@ class Lab:
         return self.memory.get_all(filters={'user_id': valid_name(user)}, top_k=10000)['results']
 
     def search(self, user, query):
-        results = self.memory.search(query, filters={'user_id': valid_name(user)}, top_k=5, threshold=0, explain=True)
+        results = self.memory.search(query, filters={'user_id': valid_name(user)})
         self.record('retrieval', user=user, query=query, results=results)
         return results
 
@@ -149,7 +149,7 @@ class Lab:
             self.record('error', stage='memory_add', error=repr(exc), after=self.memories(user))
             raise
 
-    def ingest_document(self, user, document, agent_backend=None, agent_model='', memory_backend='follow', memory_model=''):
+    def ingest_document(self, user, document, agent_backend=None, agent_model='', memory_backend='codex', memory_model=''):
         # The only file-reading tool is limited to the synthetic fixtures folder.
         root = (ROOT / 'fixtures').resolve()
         path = (root / document).resolve()
@@ -172,10 +172,10 @@ class Lab:
         response = client.chat(model=model or self.model, messages=messages, options={'temperature': 0, 'num_predict': 1024})
         summary = response.message.content
         # This is explicitly the agent's summary, never a fabricated user message.
-        extraction = resolve_extraction(backend, model, memory_backend, memory_model) if agent_backend is not None or memory_backend != 'follow' or memory_model else self.default_extraction
+        extraction = resolve_extraction(backend, model, memory_backend, memory_model) if agent_backend is not None or memory_backend != 'codex' or memory_model else self.default_extraction
         return self.add(user, [{'role': 'assistant', 'content': summary}], source='external_document_summary', metadata={'document': document, 'summary_operation_id': self.operation, 'sha256': hashlib.sha256(text.encode()).hexdigest()}, extraction=extraction)
 
-    def ask(self, user, query, mode='read', history=None, agent_backend=None, agent_model='', memory_backend='follow', memory_model=''):
+    def ask(self, user, query, mode='read', history=None, agent_backend=None, agent_model='', memory_backend='codex', memory_model=''):
         if mode not in ('read', 'write', 'none'):
             raise ValueError('mode must be read, write or none')
         self.operation = uuid.uuid4().hex
@@ -202,7 +202,7 @@ class Lab:
         if mode == 'write':
             # Save user facts only; avoid promoting the agent's answer to user truth.
             extraction = resolve_extraction(backend, agent_model if agent_backend is not None else self.agent_model,
-                                            memory_backend, memory_model) if agent_backend is not None or memory_backend != 'follow' or memory_model else self.default_extraction
+                                            memory_backend, memory_model) if agent_backend is not None or memory_backend != 'codex' or memory_model else self.default_extraction
             result['memory_write'] = self.add(user, [{'role': 'user', 'content': query}], extraction=extraction)
             result['extraction'] = extraction
         self.record('answer', user=user, query=query, **result)

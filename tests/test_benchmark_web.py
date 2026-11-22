@@ -10,6 +10,12 @@ from lab import api, benchmark
 RUN = 'dojo_20261019_020000_abcdef'
 
 
+@pytest.fixture(autouse=True)
+def available_extractor(monkeypatch):
+    monkeypatch.setattr(benchmark, 'cli_path', lambda backend: 'mock-cli')
+    monkeypatch.setattr(benchmark, 'cli_status', lambda backend: {'logged_in': True})
+
+
 def saved_run(manager, status='completed'):
     directory = manager.runs / RUN
     directory.mkdir(parents=True)
