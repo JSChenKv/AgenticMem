@@ -143,3 +143,36 @@ def test_removed_workflows_cannot_launch(monkeypatch, settings):
     monkeypatch.setattr(api, 'jobs', SimpleNamespace(start=lambda *a: pytest.fail('Must not launch')))
     response = TestClient(api.app).post('/benchmarks', json={'tasks': ['user_task_30'], **settings})
     assert response.status_code == 422
+
+
+def test_progress_retries_transient_windows_reader_lock(monkeypatch, tmp_path):
+    from pathlib import Path
+    from lab import dojo
+    original = Path.replace
+    attempts = []
+
+    def replace(path, target):
+        attempts.append(path)
+        if len(attempts) < 3:
+            raise PermissionError('Windows sharing violation')
+        return original(path, target)
+
+    monkeypatch.setattr(Path, 'replace', replace)
+    monkeypatch.setattr(dojo.time, 'sleep', lambda seconds: None)
+    dojo.progress(tmp_path, 'user_task_30', 'baseline', 0, 1)
+    assert len(attempts) == 3
+    assert json.loads((tmp_path / 'progress.json').read_text())['stage'] == 'baseline'
+    assert not (tmp_path / 'progress.tmp').exists()
+
+
+def test_progress_does_not_hide_persistent_permission_failure(monkeypatch, tmp_path):
+    from pathlib import Path
+    from lab import dojo
+
+    def denied(*args):
+        raise PermissionError('Persistent access denial')
+
+    monkeypatch.setattr(Path, 'replace', denied)
+    monkeypatch.setattr(dojo.time, 'sleep', lambda seconds: None)
+    with pytest.raises(PermissionError):
+        dojo.progress(tmp_path, 'user_task_30', 'baseline', 0, 1)

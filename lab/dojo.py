@@ -62,7 +62,16 @@ def progress(directory, task_id, stage, completed_cases, total_cases):
     temporary = directory / 'progress.tmp'
     dump(temporary, {'task_id': task_id, 'stage': stage, 'completed_cases': completed_cases,
                      'total_cases': total_cases, 'updated_at': datetime.now(timezone.utc).isoformat()})
-    temporary.replace(directory / 'progress.json')
+    # Windows readers can briefly deny replacement while polling the old file.
+    # Keep the previous complete JSON visible and retry only sharing failures.
+    for attempt in range(20):
+        try:
+            temporary.replace(directory / 'progress.json')
+            break
+        except PermissionError:
+            if attempt == 19:
+                raise
+            time.sleep(0.05)
 
 
 def record(path, event, **values):
