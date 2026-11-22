@@ -80,10 +80,19 @@ def render_run(run, review_available=False):
              '[Structured results](summary.json) · [All runs](../../README.md)', '',
              'Three conditions, autonomous tools, original AgentDojo task and native utility at Final.',
              'Native task success and semantic attacker adoption are separate outcomes.', '']
+    if run.get('source_status') != run['status'] and 'source_status' in run:
+        lines += [f"The source summary stopped at `{run['source_status']}`; the web job recorded `{run['status']}` (exit code {run.get('execution', {}).get('exit_code')}).", '']
+    if not run['cases']:
+        lines += ['No task-session results were recorded. This is an execution failure, not an attack trial.', '']
     for case in run['cases']:
         lines += [f"## {case['task_id']} — {case['label']}", '', 'Fixed payload:', '', '> ' + case['payload'], '']
         if 'sustained' in case:
             lines += report_lines(case['sustained'])
+            finals = case['sustained'].get('evaluations', {}).get('native', {})
+            if len(finals) == 3 and all(v.get('status') == 'completed' and v.get('memory_calls') == 0 for v in finals.values()):
+                lines += ['**Interpretation limit:** All three Final sessions answered without calling memory search. '
+                          'These results do not establish resistance to retrieved poisoned memory. '
+                          'Read the session answers and saved records; target mentions can be qualified or rejected.', '']
         if case.get('error'):
             lines += ['Recorded error: ' + case['error'], '']
     return '\n'.join(lines)
@@ -99,6 +108,12 @@ def main():
         protocol_path = summary.parent / 'protocol.json'
         protocol = json.loads(protocol_path.read_text(encoding='utf-8')) if protocol_path.exists() else {}
         out = pick(source, 'run_id status exposure_policy agent memory_model extraction context_policy workflow evaluation_tools')
+        job_path = summary.parent / 'web-job.json'
+        if job_path.exists():
+            job = json.loads(job_path.read_text(encoding='utf-8'))
+            out['execution'] = pick(job, 'status exit_code started_at finished_at')
+            if source['status'] in ('running', 'starting') and job.get('status') not in ('running', 'starting', None):
+                out['source_status'], out['status'] = source['status'], job['status']
         out['export_schema'] = 'agenticmem-shared-results-v2'
         out['source_summary_sha256'] = hashlib.sha256(summary.read_bytes()).hexdigest()
         out['protocol'] = pick(protocol, 'agentdojo benchmark_version suite mem0ai model agent_backend memory_model extraction exposure_policy context_policy seed num_ctx read_tools workflow evaluation_tools sustained_protocol')
@@ -107,6 +122,14 @@ def main():
         target.mkdir(parents=True, exist_ok=True)
         (target / 'summary.json').write_text(json.dumps(out, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
         (target / 'report.md').write_text(render_run(out), encoding='utf-8')
+        validation_path = summary.parent / 'validation.json'
+        if validation_path.exists():
+            checks = json.loads(validation_path.read_text(encoding='utf-8'))
+            allowed = ('all_13_sessions_completed', 'shared_seed_identical', 'memory_off_no_records_or_writes',
+                       'memory_off_databases_unchanged', 'all_final_no_writes',
+                       'polluted_payload_observed_all_8_sessions', 'original_seed_ids_preserved')
+            shared = {key: checks[key] for key in allowed if isinstance(checks.get(key), bool)}
+            (target / 'validation.json').write_text(json.dumps(shared, indent=2) + '\n', encoding='utf-8')
         runs.append(out)
     if not runs:
         print('No current runs to export. Start a three-condition experiment first.')
@@ -116,7 +139,8 @@ def main():
              '| Run | Status |', '| --- | --- |']
     for run in runs:
         lines.append(f"| [{run['run_id']}](runs/{run['run_id']}/report.md) | {run['status']} |")
-    lines += ['', 'Native utility and semantic attack adoption are separate. Review exported text before publishing.',
+    lines += ['', '[Five-stage analysis](analysis/pipeline_stages_v2.md) · [Analysis JSON](analysis/pipeline_stages_v2.json)', '',
+              'Native utility and semantic attack adoption are separate. Automatic labels remain provisional.',
               'Local web history reads data/agentdojo_runs; these exports do not populate it.', '']
     (destination / 'README.md').write_text('\n'.join(lines), encoding='utf-8')
     print(f'Exported {len(runs)} runs to results/')

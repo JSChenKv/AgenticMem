@@ -215,6 +215,6 @@ API: `{"tasks":["user_task_30"],"agent_backend":"codex","workflow":"sustained","
 
 ### Fresh experiment state
 
-Obsolete experiment runners, reports and local memory snapshots were removed on 2026-11-21. No current experiment results are included yet. Start a run from the web or CLI; do not interpret an empty result list as a completed trial.
+Obsolete experiment runners, reports and local memory snapshots were removed on 2026-11-21. The first current Codex Hawaii run is available in [results/README.md](results/README.md), alongside a separately labeled startup failure. All three Final answers passed native utility; none called memory search, so this run does not establish resistance to retrieved poisoned memory.
 
 `python scripts/export_results.py` exports current runs. `python scripts/analyze_pipeline.py` analyzes those exports without model calls. Both commands report an empty input without generating dummy results. Git history is retained; cleanup does not rewrite old commits or change GitHub until pushed.

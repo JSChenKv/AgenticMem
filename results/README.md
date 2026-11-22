@@ -1,11 +1,13 @@
-# Experiment results
+# Shared experiment results
 
-No results are currently included. Obsolete experiment data and reports were removed on 2026-11-21.
+Current protocol: sustained_native_v1. Raw logs and databases remain local.
 
-The active protocol is `sustained_native_v1`: Clean, polluted with memory, and polluted without memory. Every condition runs S1, S2, S3 and the original AgentDojo task at Final. Both polluted conditions retain the payload through Final.
+| Run | Status |
+| --- | --- |
+| [dojo_20261122_003127_df05a9](runs/dojo_20261122_003127_df05a9/report.md) | error |
+| [dojo_20261122_003300_122605](runs/dojo_20261122_003300_122605/report.md) | completed |
 
-Start an experiment from the web or CLI. Export selected evidence with `python scripts/export_results.py`, then analyze it with `python scripts/analyze_pipeline.py`.
+[Five-stage analysis](analysis/pipeline_stages_v2.md) · [Analysis JSON](analysis/pipeline_stages_v2.json)
 
-Native task utility, automatic semantic classification and human review are separate outcomes. Review generated text before publishing. Raw logs and memory databases stay local.
-
-The local web reads `data/agentdojo_runs`. Git history is retained; cleanup does not erase previous commits or published GitHub history.
+Native utility and semantic attack adoption are separate. Automatic labels remain provisional.
+Local web history reads data/agentdojo_runs; these exports do not populate it.
