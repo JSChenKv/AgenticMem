@@ -64,14 +64,30 @@ class BenchmarkJobs:
                 owner = read_json(self.root / 'data' / 'benchmark-owner.json') or {}
                 return owner.get('run_id', 'external')
 
-    def start(self, tasks, policy, agent_backend='ollama', agent_model='', memory_backend='follow', memory_model=''):
+    def start(self, tasks, policy, agent_backend='ollama', agent_model='', memory_backend='follow', memory_model='', workflow='sustained', delay_tasks=0, evaluation_tools='workspace', source_run_id=''):
+        if workflow not in ('pilot', 'episode', 'autonomous', 'direct', 'sustained') or type(delay_tasks) is not int or delay_tasks not in (0, 1, 3):
+            raise ValueError('Invalid episode configuration')
+        if evaluation_tools not in ('workspace', 'memory_only'):
+            raise ValueError('Invalid final evaluation tools')
+        if workflow == 'sustained' and evaluation_tools != 'workspace':
+            raise ValueError('Sustained exposure requires workspace tools at Final')
+        if workflow in ('autonomous', 'direct', 'sustained'):
+            policy, delay_tasks = 'agent', 0
+        if workflow == 'direct':
+            from lab.direct import load_source, protocol
+            selected, reference, archived = load_source(self.root, source_run_id, tasks)
+            protocol(selected, reference, archived)
+            if evaluation_tools != 'workspace':
+                raise ValueError('Direct-source comparison requires workspace tools')
+        elif source_run_id:
+            raise ValueError('Source run is only used by the direct-source supplement')
         validate_agent(agent_backend, agent_model)
         extraction = resolve_extraction(agent_backend, agent_model, memory_backend, memory_model)
         if agent_backend != 'ollama' and not cli_path(agent_backend):
             raise ValueError(f'{agent_backend} CLI not found. Configure {agent_backend.upper()}_CLI_PATH on the server.')
         if agent_backend != 'ollama' and cli_status(agent_backend).get('logged_in') is False:
             raise ValueError(f'{agent_backend} CLI is not logged in. Complete its CLI login, then retry.')
-        if extraction['backend'] != 'ollama':
+        if workflow != 'direct' and extraction['backend'] != 'ollama':
             if not cli_path(extraction['backend']) or cli_status(extraction['backend']).get('logged_in') is False:
                 raise ValueError(f"Memory extractor {extraction['backend']} is unavailable or not logged in.")
         if not tasks or len(tasks) != len(set(tasks)) or any(t not in TASKS for t in tasks):
@@ -94,10 +110,14 @@ class BenchmarkJobs:
             job = {'run_id': run_id, 'status': 'starting', 'tasks': tasks, 'exposure_policy': policy,
                    'started_at': datetime.now(timezone.utc).isoformat(),
                    'agent': {'backend': agent_backend, 'model': agent_model or ('local default' if agent_backend == 'ollama' else 'CLI default')},
-                   'extraction': extraction}
+                   'extraction': extraction, 'workflow': workflow, 'delay_tasks': delay_tasks, 'evaluation_tools': evaluation_tools,
+                   'source_run_id': source_run_id}
             self._write(directory / 'web-job.json', job)
             command = [sys.executable, '-m', 'lab.dojo', '--run-id', run_id, '--tasks', *tasks,
-                       '--exposure-policy', policy, '--agent-backend', agent_backend, '--memory-backend', memory_backend]
+                       '--exposure-policy', policy, '--agent-backend', agent_backend, '--memory-backend', memory_backend,
+                       '--workflow', workflow, '--delay-tasks', str(delay_tasks), '--evaluation-tools', evaluation_tools]
+            if source_run_id:
+                command += ['--source-run-id', source_run_id]
             if agent_model:
                 command += ['--agent-model', agent_model]
             if memory_model:
@@ -172,6 +192,10 @@ class BenchmarkJobs:
         except OSError:
             console = ''
         return {'run_id': run_id, 'status': status, 'active': active, 'progress': progress,
+                'workflow': summary.get('workflow', job.get('workflow', 'pilot')),
+                'delay_tasks': summary.get('delay_tasks', job.get('delay_tasks', 0)),
+                'evaluation_tools': summary.get('evaluation_tools', job.get('evaluation_tools', 'workspace')),
+                'source_run_id': summary.get('source_run_id', job.get('source_run_id', '')),
                 'agent': summary.get('agent', job.get('agent', {'backend': 'ollama', 'model': 'qwen2.5:7b'})),
                 'memory_model': summary.get('memory_model', 'qwen2.5:7b'),
                 'extraction': summary.get('extraction', job.get('extraction', {
@@ -190,7 +214,7 @@ class BenchmarkJobs:
             if not RUN_PATTERN.fullmatch(directory.name) or not directory.is_dir():
                 continue
             run = self.get(directory.name)
-            result.append({key: run[key] for key in ('run_id', 'status', 'active', 'tasks', 'exposure_policy', 'started_at', 'agent', 'extraction')})
+            result.append({key: run[key] for key in ('run_id', 'status', 'active', 'tasks', 'exposure_policy', 'started_at', 'agent', 'extraction', 'workflow', 'delay_tasks')})
             if len(result) == 50:
                 break
         return result

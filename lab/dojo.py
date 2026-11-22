@@ -286,7 +286,9 @@ def clone_closed_experiment(source, destination):
     with (src / 'qdrant' / '.lock').open('a+b') as lock:
         portalocker.lock(lock, portalocker.LOCK_EX | portalocker.LOCK_NB)
         shutil.copytree(src, dst, ignore=shutil.ignore_patterns('.lock'))
-    (dst / 'manifest.json').rename(dst / 'parent-manifest.json')
+    # A snapshot can itself be a clone (including an unopened zero-delay branch).
+    if (dst / 'manifest.json').exists():
+        (dst / 'manifest.json').replace(dst / 'parent-manifest.json')
     if database_hashes(src) != database_hashes(dst):
         raise RuntimeError('Snapshot database hashes differ')
     return database_hashes(dst)
@@ -340,6 +342,49 @@ def follow_up(experiment, case, use_memory=True):
 
 
 def render_report(report, path):
+    if report.get('workflow') == 'sustained':
+        from lab.sustained import report_lines
+        rows = ['# Sustained source exposure and memory', '', f"Run: `{report['run_id']}`. Status: `{report['status']}`.", '',
+                f"Agent: `{report['agent']}`. Extraction: `{report['extraction']}`.", '',
+                'Three conditions; native AgentDojo question and task utility at Final. '
+                'Custom longitudinal harness, not an unmodified AgentDojo leaderboard run.', '']
+        for case in report['cases']:
+            rows += [f"## {case['task_id']} — {case['label']}", '', 'Fixed payload:', '', '> ' + case['payload'], '']
+            if case.get('sustained'):
+                rows += report_lines(case['sustained'])
+            if case.get('error'):
+                rows += ['Error: ' + case['error'], '']
+        path.write_text('\n'.join(rows), encoding='utf-8')
+        return
+    if report.get('workflow') == 'direct':
+        from lab.direct import report_lines
+        rows = ['# Memory-off direct-source supplement', '', f"Run: `{report['run_id']}`. Status: `{report['status']}`.", '',
+                f"Task agent: `{report['agent']}`. Memory reads and writes disabled; no extraction calls.", '',
+                f"Source run: `{report['source_run_id']}`. Clean controls are reused, not rerun.", '']
+        for case in report['cases']:
+            rows += [f"## {case['task_id']} — {case['label']}", '', 'Fixed inherited payload:', '', '> ' + case['payload'], '']
+            if case.get('direct'):
+                rows += report_lines(case['direct'])
+            if case.get('error'):
+                rows += ['Error: ' + case['error'], '']
+        path.write_text('\n'.join(rows), encoding='utf-8')
+        return
+    if report.get('workflow') == 'autonomous':
+        from lab.repeated import report_lines
+        rows = ['# Autonomous repeated-exposure memory experiment', '', f"Run: `{report['run_id']}`", '',
+                f"Agent: `{report['agent']}`. Extraction: `{report['extraction']}`.", '',
+                f"Final tools: `{report['evaluation_tools']}`. Status: `{report['status']}`.", '',
+                'Custom cross-session extension to AgentDojo 0.1.35 / workspace v1.2.2. Fixed payloads; '
+                'no adaptive attack search, repeated-trial estimate, or aggregate ASR. All schedules and failures are retained.', '']
+        for case in report['cases']:
+            rows += [f"## {case['task_id']} — {case['label']}", '',
+                     f"Expected: `{case['expected']}`; target: `{case['target']}`. Status: `{case['status']}`.", '']
+            if case.get('repeated'):
+                rows += report_lines(case['repeated'])
+            if case.get('error'):
+                rows += ['', 'Error: ' + case['error'], '']
+        path.write_text('\n'.join(rows), encoding='utf-8')
+        return
     rows = ['# AgentDojo × Mem0 · Memory pilot', '', f"Run: `{report['run_id']}`", '',
             'AgentDojo 0.1.35 / workspace v1.2.2 · Mem0. Task agent: ' + str(report.get('agent', {'backend': 'ollama', 'model': 'qwen2.5:7b'})), '',
             'Memory extraction: ' + str(report.get('extraction', {'mode': 'legacy', 'backend': 'ollama', 'model': report.get('memory_model', 'qwen2.5:7b')})), '',
@@ -375,6 +420,9 @@ def render_report(report, path):
                 rows += [f"- {title}: {output['answer']} (selected_value: `{output['selected_value']}`; conflict: `{output['conflict']}`)"]
         if case.get('error'):
             rows += ['', f"Error: `{case['error']}`"]
+        if case.get('episode'):
+            from lab.episodes import report_lines
+            rows += ['', *report_lines(case['episode'])]
         rows += ['']
     rows += ['## Reproduction and evidence', '', f"Raw results: `{report['directory']}`. Includes fixed payloads, source hashes, model digests, tool traces, memory snapshots and summary.json.", '',
              'Each run uses isolated experiment directories. This pilot does not run TAP, gradient search or repeated trials.', '',
@@ -390,8 +438,25 @@ def main():
     parser.add_argument('--agent-model', default='')
     parser.add_argument('--memory-backend', choices=['follow', 'ollama', 'codex', 'claude'], default='follow')
     parser.add_argument('--memory-model', default='')
+    parser.add_argument('--workflow', choices=['pilot', 'episode', 'autonomous', 'direct', 'sustained'], default='sustained')
+    parser.add_argument('--source-run-id', default='')
+    parser.add_argument('--delay-tasks', type=int, choices=[0, 1, 3], default=0)
+    parser.add_argument('--evaluation-tools', choices=['workspace', 'memory_only'], default='workspace')
     parser.add_argument('--run-id', help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.workflow == 'sustained' and args.evaluation_tools != 'workspace':
+        raise ValueError('Sustained exposure requires workspace tools at Final')
+    if args.workflow in ('autonomous', 'direct', 'sustained'):
+        args.exposure_policy, args.delay_tasks = 'agent', 0
+    parent_cases, source_reference, source_protocol = [], None, None
+    if args.workflow == 'direct':
+        from lab.direct import load_source, protocol as direct_protocol
+        parent_cases, source_reference, source_protocol = load_source(ROOT, args.source_run_id, args.tasks)
+        direct_protocol(parent_cases, source_reference, source_protocol)
+        if args.evaluation_tools != 'workspace':
+            raise ValueError('Direct-source supplement requires workspace tools')
+    elif args.source_run_id:
+        raise ValueError('Source run is only used by the direct-source supplement')
     validate_agent(args.agent_backend, args.agent_model)
     extraction = resolve_extraction(args.agent_backend, args.agent_model, args.memory_backend, args.memory_model)
     if args.agent_backend != 'ollama' and not cli_path(args.agent_backend):
@@ -421,31 +486,53 @@ def main():
     dump(ROOT / 'data' / 'benchmark-owner.json', {'run_id': run_id})
     suite = get_suite(VERSION, 'workspace')
     selected = [c for c in CASES if c['task_id'] in args.tasks]
+    if args.workflow == 'direct':
+        selected = [{key: c[key] for key in CASES[0]} for c in parent_cases]
     progress(directory, None, 'initializing', 0, len(selected))
     # Archive protocol and inputs BEFORE model execution; no feedback-driven payload edits.
     suite_root = Path(inspect.getfile(type(suite))).parents[1]
-    source_files = [Path(__file__), ROOT / 'lab' / 'core.py', ROOT / 'lab' / 'agents.py', ROOT / 'lab' / 'mcp_bridge.py',
+    source_files = [Path(__file__), ROOT / 'lab' / 'values.py', ROOT / 'lab' / 'pipeline.py', ROOT / 'lab' / 'sustained.py', ROOT / 'lab' / 'direct.py', ROOT / 'lab' / 'repeated.py', ROOT / 'lab' / 'episodes.py', ROOT / 'lab' / 'core.py', ROOT / 'lab' / 'agents.py', ROOT / 'lab' / 'mcp_bridge.py',
                     *sorted(suite_root.rglob('*.py')),
                     *sorted((suite_root / 'data' / 'suites' / 'workspace').rglob('*.yaml')),
                     *sorted((suite_root / 'default_suites').glob('*/workspace/user_tasks.py'))]
     manifest = {'agentdojo': '0.1.35', 'benchmark_version': VERSION, 'suite': 'workspace', 'mem0ai': importlib.metadata.version('mem0ai'),
                 'model': model or 'CLI default', 'agent_backend': args.agent_backend,
                 'memory_model': extraction['model'] or 'CLI default', 'extraction': extraction, 'context_policy': 'task_only_v1',
-                'extraction_cli': cli_status(extraction['backend']) if extraction['backend'] != 'ollama' else None,
+                'extraction_cli': cli_status(extraction['backend']) if args.workflow != 'direct' and extraction['backend'] != 'ollama' else None,
                 'cli': cli_status(args.agent_backend) if args.agent_backend != 'ollama' else None,
                 'seed': seed, 'num_ctx': 8192, 'read_tools': READ_TOOLS, 'cases': selected, 'exposure_policy': args.exposure_policy,
+                'workflow': args.workflow, 'delay_tasks': args.delay_tasks, 'evaluation_tools': args.evaluation_tools,
                 'models': Client(host=url).list().model_dump(mode='json'), 'task_prompt': TASK_PROMPT, 'followup_prompt': FOLLOW_PROMPT,
                 'search_recovery_prompt': SEARCH_RECOVERY_PROMPT, 'max_search_recoveries': 2,
                 'source_sha256': {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in source_files}}
+    if args.workflow == 'sustained':
+        from lab.sustained import protocol, SYSTEM
+        manifest.update(sustained_protocol=protocol(selected, suite),
+                        read_tools=['search_memory', *READ_TOOLS], task_prompt=SYSTEM,
+                        followup_prompt=None, search_recovery_prompt=None, max_search_recoveries=0)
+    if args.workflow == 'autonomous':
+        from lab.repeated import protocol, SYSTEM
+        manifest['autonomous_protocol'] = protocol(selected, args.evaluation_tools)
+        manifest.update(read_tools=['search_memory', *READ_TOOLS], task_prompt=SYSTEM,
+                        followup_prompt=None, search_recovery_prompt=None, max_search_recoveries=0)
+    if args.workflow == 'direct':
+        from lab.repeated import SYSTEM
+        manifest.update(direct_protocol=direct_protocol(selected, source_reference, source_protocol),
+                        source_run_id=args.source_run_id, memory_write_enabled=False,
+                        read_tools=['search_memory', *READ_TOOLS], task_prompt=SYSTEM,
+                        followup_prompt=None, search_recovery_prompt=None, max_search_recoveries=0)
     dump(directory / 'protocol.json', manifest)
     snapshot = directory / 'source-snapshot'
     snapshot.mkdir()
-    for source in (Path(__file__), ROOT / 'lab' / 'core.py', ROOT / 'lab' / 'agents.py', ROOT / 'lab' / 'mcp_bridge.py', ROOT / 'requirements-benchmark.lock.txt'):
+    for source in (Path(__file__), ROOT / 'lab' / 'values.py', ROOT / 'lab' / 'pipeline.py', ROOT / 'lab' / 'sustained.py', ROOT / 'lab' / 'direct.py', ROOT / 'lab' / 'repeated.py', ROOT / 'lab' / 'episodes.py', ROOT / 'lab' / 'core.py', ROOT / 'lab' / 'agents.py', ROOT / 'lab' / 'mcp_bridge.py', ROOT / 'requirements-benchmark.lock.txt'):
         if source.exists():
             shutil.copyfile(source, snapshot / source.name)
     report = {'run_id': run_id, 'directory': str(directory), 'cases': [], 'status': 'running', 'exposure_policy': args.exposure_policy,
               'agent': {'backend': args.agent_backend, 'model': model or 'CLI default'}, 'memory_model': manifest['memory_model'],
-              'extraction': extraction, 'context_policy': 'task_only_v1'}
+              'extraction': extraction, 'context_policy': 'task_only_v1',
+              'workflow': args.workflow, 'delay_tasks': args.delay_tasks, 'evaluation_tools': args.evaluation_tools}
+    if args.workflow == 'direct':
+        report.update(source_run_id=args.source_run_id, memory_write_enabled=False)
     dump(directory / 'summary.json', report)
     output = ROOT / 'reports' / 'agentdojo-mini-latest.md'
     output.parent.mkdir(exist_ok=True)
@@ -454,13 +541,52 @@ def main():
         case_dir = directory / case['task_id']
         case_dir.mkdir()
         progress(directory, case['task_id'], 'baseline', len(report['cases']), len(selected))
-        print(f"[{case['task_id']}] {case['label']}: running autonomous baseline", flush=True)
+        print(f"[{case['task_id']}] {case['label']}: " + ('starting memory-off supplement' if args.workflow == 'direct' else 'running autonomous baseline'), flush=True)
         try:
             task = suite.get_user_task_by_id(case['task_id'])
             candidates = reachable_vectors(suite, task)
             if case['vector'] not in candidates:
                 raise ValueError('Chosen injection vector is not reachable in the official reference trajectory')
             result['reachable_vectors'] = candidates
+            if args.workflow == 'sustained':
+                from lab.sustained import run_case as run_sustained
+                def checkpoint_sustained(value):
+                    result['sustained'] = value
+                    dump(case_dir / 'sustained.json', value)
+                    dump(directory / 'summary.json', {**report, 'cases': [*report['cases'], result]})
+                sustained = run_sustained(suite, case, 'seed_' + uuid.uuid4().hex, clone_closed_experiment,
+                    lambda name: database_hashes(ROOT / 'data' / 'experiments' / name), args.evaluation_tools,
+                    lambda stage: progress(directory, case['task_id'], stage, len(report['cases']), len(selected)),
+                    checkpoint_sustained)
+                result['status'] = sustained['status']
+                result['baseline'] = {**sustained['seed'], 'tools': sustained['seed']['tool_calls']}
+                continue
+            if args.workflow == 'direct':
+                from lab.direct import run_case as run_direct
+                def checkpoint_direct(value):
+                    result['direct'] = value
+                    dump(case_dir / 'direct.json', value)
+                    dump(directory / 'summary.json', {**report, 'cases': [*report['cases'], result]})
+                parent = next(c for c in parent_cases if c['task_id'] == case['task_id'])
+                direct = run_direct(suite, case, parent, source_reference, clone_closed_experiment,
+                    lambda name: database_hashes(ROOT / 'data' / 'experiments' / name),
+                    lambda stage: progress(directory, case['task_id'], stage, len(report['cases']), len(selected)), checkpoint_direct)
+                result['status'] = direct['status']
+                continue
+            if args.workflow == 'autonomous':
+                from lab.repeated import run_case
+                def checkpoint_repeated(value):
+                    result['repeated'] = value
+                    dump(case_dir / 'repeated.json', value)
+                    # Publish a partial current case without adding it twice to the final report.
+                    dump(directory / 'summary.json', {**report, 'cases': [*report['cases'], result]})
+                repeated = run_case(suite, case, 'seed_' + uuid.uuid4().hex, clone_closed_experiment,
+                    lambda name: database_hashes(ROOT / 'data' / 'experiments' / name), args.evaluation_tools,
+                    lambda stage: progress(directory, case['task_id'], stage, len(report['cases']), len(selected)),
+                    checkpoint_repeated)
+                result['status'] = repeated['status']
+                result['baseline'] = {**repeated['seed'], 'tools': repeated['seed']['tool_calls']}
+                continue
             baseline = native_task(suite, case, case_dir, model, url, seed)
             result['baseline'] = baseline
             baseline_ok = baseline['native_utility'] and bool(baseline['tools'])
@@ -513,8 +639,32 @@ def main():
                 result['followup_poison']['target_value_selected'] and result['followup_poison']['target_claim_record_cited'] and
                 not result['followup_without_memory']['target_value_selected'])
             result['status'] = ('completed' if baseline_ok else 'completed_controlled_only') if result['causal_pair_valid'] else 'clean_memory_failed'
+            if args.workflow == 'episode':
+                from lab.episodes import run_episode
+                print(f"[{case['task_id']}] Cross-session episode: {args.delay_tasks} intermediate tasks and four controls", flush=True)
+                def checkpoint_episode(value):
+                    result['episode'] = value
+                    dump(case_dir / 'episode.json', value)
+                result['episode'] = run_episode(case, names, args.delay_tasks, clone_closed_experiment,
+                    lambda name: database_hashes(ROOT / 'data' / 'experiments' / name),
+                    lambda stage: progress(directory, case['task_id'], stage, len(report['cases']), len(selected)),
+                    checkpoint_episode)
+                if result['episode']['status'] != 'completed':
+                    result['status'] = 'episode_needs_review'
         except Exception as exc:
             result['status'], result['error'] = 'error', repr(exc)
+            if result.get('sustained', {}).get('status') == 'running':
+                result['sustained'].update(status='error', error=str(exc))
+                dump(case_dir / 'sustained.json', result['sustained'])
+            if result.get('direct', {}).get('status') == 'running':
+                result['direct'].update(status='error', error=str(exc))
+                dump(case_dir / 'direct.json', result['direct'])
+            if result.get('repeated', {}).get('status') == 'running':
+                result['repeated'].update(status='error', error=str(exc))
+                dump(case_dir / 'repeated.json', result['repeated'])
+            if result.get('episode', {}).get('status') == 'running':
+                result['episode'].update(status='error', error=str(exc))
+                dump(case_dir / 'episode.json', result['episode'])
             print(f"[{case['task_id']}] ERROR: {exc}", flush=True)
         finally:
             report['cases'].append(result)

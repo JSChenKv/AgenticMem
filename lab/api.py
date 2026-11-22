@@ -14,6 +14,10 @@ from lab.core import Lab
 from lab.benchmark import jobs
 from lab.agents import agent_catalog, cli_path, cli_status, resolve_extraction
 import os
+from datetime import datetime, timezone
+from lab.pipeline import analyze_run
+from lab.values import VERSION as CLASSIFIER_VERSION
+from lab.benchmark import read_json
 
 lock = threading.RLock()
 labs = {}
@@ -156,6 +160,10 @@ def memories(experiment: str = 'default', user: str = 'researcher'):
 class BenchmarkRequest(AgentSettings):
     tasks: list[Literal['user_task_14', 'user_task_30']] = Field(min_length=1, max_length=2)
     exposure_policy: Literal['reference', 'agent'] = 'reference'
+    workflow: Literal['pilot', 'episode', 'autonomous', 'direct', 'sustained'] = 'sustained'
+    delay_tasks: Literal[0, 1, 3] = 0
+    evaluation_tools: Literal['workspace', 'memory_only'] = 'workspace'
+    source_run_id: str = Field(default='', pattern=r'^(?:dojo_\d{8}_\d{6}_[a-f0-9]{6})?$')
 
 
 @app.get('/agents')
@@ -174,7 +182,8 @@ def start_benchmark(query: BenchmarkRequest):
     with lock:
         try:
             return jobs.start(query.tasks, query.exposure_policy, query.agent_backend, query.agent_model,
-                              query.memory_backend, query.memory_model)
+                              query.memory_backend, query.memory_model, query.workflow, query.delay_tasks, query.evaluation_tools,
+                              **({'source_run_id': query.source_run_id} if query.source_run_id else {}))
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:
@@ -209,3 +218,59 @@ def benchmark_evidence(run_id: str):
     if not run['summary']:
         raise HTTPException(status_code=404, detail='Results are not ready yet')
     return FileResponse(jobs.path(run_id) / 'summary.json', filename=run_id + '.json')
+
+
+class AnalysisReview(BaseModel):
+    source_sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
+    classifier_version: str = Field(max_length=80)
+    label: Literal['real', 'target', 'both', 'none'] | None
+    conflict: bool | None
+    none_reason: Literal['unknown', 'cancelled', 'negated_values'] | None = None
+    notes: str = Field(min_length=1, max_length=3000)
+
+    @model_validator(mode='after')
+    def coherent_review(self):
+        if not self.notes.strip():
+            raise ValueError('Include evidence or a rationale for this judgment')
+        if (self.label == 'none') != (self.none_reason is not None):
+            raise ValueError('A no-current-value judgment requires its reason; other labels must omit it')
+        return self
+
+
+@app.get('/benchmarks/{run_id}/analysis')
+def benchmark_analysis(run_id: str):
+    run = get_run(run_id)
+    if not run['summary']:
+        raise HTTPException(status_code=404, detail='No saved evidence to analyze yet')
+    reviews = read_json(jobs.path(run_id) / 'analysis-reviews.json')
+    result = analyze_run(run['summary'], reviews)
+    result['active'] = run['active']
+    return result
+
+
+@app.put('/benchmarks/{run_id}/analysis/{row_id}/review')
+def save_analysis_review(run_id: str, row_id: str, review: AnalysisReview):
+    with lock:
+        run = get_run(run_id)
+        if run['active']:
+            raise HTTPException(status_code=409, detail='Wait until this run finishes before reviewing evidence')
+        if not run['summary']:
+            raise HTTPException(status_code=404, detail='No saved evidence to review')
+        current = analyze_run(run['summary'])
+        if review.source_sha256 != current['source_sha256'] or review.classifier_version != CLASSIFIER_VERSION:
+            raise HTTPException(status_code=409, detail='Evidence or classifier changed; reload the analysis')
+        if not any(r['row_id'] == row_id for r in current['rows']):
+            raise HTTPException(status_code=404, detail='Analysis row not found')
+        path = jobs.path(run_id) / 'analysis-reviews.json'
+        saved = read_json(path) or {}
+        if saved and (saved.get('source_sha256') != current['source_sha256'] or
+                      saved.get('classifier_version') != CLASSIFIER_VERSION):
+            # Preserve previous annotations when evidence/classifier revisions change.
+            stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%f')
+            jobs._write(path.with_name('analysis-reviews-' + stamp + '.json'), saved)
+            saved = {}
+        saved.update(source_sha256=current['source_sha256'], classifier_version=CLASSIFIER_VERSION)
+        saved.setdefault('rows', {})[row_id] = {**review.model_dump(exclude={'source_sha256', 'classifier_version'}),
+                                               'reviewed_at': datetime.now(timezone.utc).isoformat()}
+        jobs._write(path, saved)
+        return analyze_run(run['summary'], saved)

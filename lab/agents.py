@@ -156,6 +156,7 @@ def tool_broker(definitions, handler):
     thread.start()
     try:
         yield {'command': sys.executable,
+               'allowed_tools': sorted(allowed),
                'args': [str(Path(__file__).with_name('mcp_bridge.py'))],
                'env': {'WORKSPACE_TOOL_URL': f'http://127.0.0.1:{server.server_port}',
                        'WORKSPACE_TOOL_TOKEN': token, 'PYTHONUTF8': '1'}}
@@ -211,14 +212,16 @@ def claude_command(executable, cwd, control, model, server):
     settings = {'disableAllHooks': True, 'autoMemoryEnabled': False,
                 'claudeMdExcludes': ['**/CLAUDE.md', '**/CLAUDE.local.md', '**/AGENTS.md', '**/.claude/rules/**']}
     (control / 'settings.json').write_text(json.dumps(settings), encoding='utf-8')
-    (control / 'mcp.json').write_text(json.dumps({'mcpServers': {'workspace': server} if server else {}}), encoding='utf-8')
+    server_config = {key: value for key, value in server.items() if key != 'allowed_tools'} if server else None
+    (control / 'mcp.json').write_text(json.dumps({'mcpServers': {'workspace': server_config} if server else {}}), encoding='utf-8')
     command = [executable, '-p', '--output-format', 'json', '--no-session-persistence', '--restricted',
                '--tools', '', '--disable-slash-commands', '--setting-sources', '',
                '--settings', str(control / 'settings.json'), '--strict-mcp-config',
                '--mcp-config', str(control / 'mcp.json'), '--permission-mode', 'dontAsk',
                '--system-prompt-file', str(control / 'instructions.txt')]
     if server:
-        command += ['--allowedTools', 'mcp__workspace__search_emails,mcp__workspace__search_files']
+        command += ['--allowedTools', ','.join('mcp__workspace__' + name for name in
+                    server.get('allowed_tools', ['search_emails', 'search_files']))]
     if model:
         command += ['--model', model]
     return command
