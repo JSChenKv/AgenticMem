@@ -1,7 +1,8 @@
 """Analyze current three-condition runs without model calls or changes to source runs.
 
 Extends aditya/8183c91's five-stage analysis. The source evidence is never modified.
-V2 reports contain per-session evidence and provisional classifications.
+Reports contain per-session evidence and provisional classifications. Output:
+results/analysis/pipeline_stages.{md,json} (the schema version is inside the files).
 """
 import argparse
 import json
@@ -14,30 +15,56 @@ if str(ROOT) not in sys.path:
 from lab.pipeline import analyze_run, VERSION
 from lab.values import VERSION as CLASSIFIER_VERSION
 
+COLUMNS = [('task_id', 'Task'), ('condition', 'Condition'), ('stage', 'Session'), ('saw_attack', 'Payload seen'),
+           ('repeated_in_answer', 'Asserts attacker value'), ('saved_as_fact', 'Saved as fact'),
+           ('attacker_content_saved', 'Attacker content saved (any framing)'), ('memory_search_count', 'Memory searches'),
+           ('attacker_content_rank', 'Attacker content rank'), ('real_rank', 'Real rank'),
+           ('native_utility', 'Native utility'), ('answer_time_outcome', 'Automatic outcome'), ('review_status', 'Review')]
 
-def cell(value):
-    if value is None:
-        return 'Not recorded / needs review'
+
+def text(value):
     if isinstance(value, bool):
         return 'Yes' if value else 'No'
     return str(value).replace('|', '\\|').replace('\n', ' ')
 
 
+def cell(row, key):
+    """Say WHY a value is empty instead of printing one generic 'not recorded'."""
+    value = row.get(key)
+    if value is not None:
+        return text(value)
+    memory_off = row.get('memory_enabled') is False or 'memory_off' in str(row.get('condition'))
+    if key in ('attacker_content_rank', 'real_rank'):
+        if memory_off:
+            return 'memory off'
+        if row.get('memory_search_count') == 0:
+            return 'no memory search'
+        if row.get('memory_search_count'):
+            return 'not retrieved'
+    if key in ('saved_as_fact', 'attacker_content_saved') and row.get('write_enabled') is False:
+        return 'no write'
+    if key == 'native_utility' and row.get('stage', '').startswith('S'):
+        return 'not scored'
+    if key == 'repeated_in_answer':
+        return 'ambiguous (review)'
+    return 'not recorded'
+
+
 def render(analyses):
-    lines = ['# Five-stage analysis — v2', '',
-             'Separate reanalysis of saved evidence. Original summaries and native utility are unchanged.',
+    lines = ['# Five-stage analysis', '',
+             f'Schema `{VERSION}`, classifier `{CLASSIFIER_VERSION}`. Separate reanalysis of saved evidence; '
+             'original summaries and native utility are unchanged.',
              'Automatic asserted-value labels are provisional and require review. Missing data is not a negative outcome.',
              'Do not pool runs with different configurations into an attack success rate.',
-             'Unranked historical retrieval unions are never assigned fabricated per-query ranks.', '']
+             '*Saved as fact* means a new record asserts the attacker value. *Attacker content* includes quoted or rejected '
+             'mentions; quoting to reject is not adoption. Ranks are 1-based within each search.', '']
     for analysis in analyses:
         lines += [f"## {analysis['run_id']}", '',
                   f"Workflow: {analysis['workflow']}. Source SHA-256: {analysis['source_sha256']}.", '',
-                  '| Task | Condition | Session | Seen | Repeated | Saved | Target rank | Real rank | Native utility | Automatic outcome | Review |',
-                  '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |']
-        for r in analysis['rows']:
-            lines.append('| ' + ' | '.join(cell(r.get(k)) for k in (
-                'task_id', 'condition', 'stage', 'saw_attack', 'repeated_in_answer', 'saved_to_memory',
-                'attacker_rank', 'real_rank', 'native_utility', 'answer_time_outcome', 'review_status')) + ' |')
+                  '| ' + ' | '.join(title for _, title in COLUMNS) + ' |',
+                  '| ' + ' | '.join('---' for _ in COLUMNS) + ' |']
+        for row in analysis['rows']:
+            lines.append('| ' + ' | '.join(cell(row, key) for key, _ in COLUMNS) + ' |')
         lines += ['', 'Exclusions and all clause-level evidence are retained in the JSON; no rows are silently dropped.', '']
     return '\n'.join(lines)
 
@@ -60,8 +87,8 @@ def main():
         return
     args.output.mkdir(parents=True, exist_ok=True)
     output = {'schema': VERSION, 'classifier_version': CLASSIFIER_VERSION, 'analyses': analyses}
-    (args.output / 'pipeline_stages_v2.json').write_text(json.dumps(output, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
-    (args.output / 'pipeline_stages_v2.md').write_text(render(analyses), encoding='utf-8')
+    (args.output / 'pipeline_stages.json').write_text(json.dumps(output, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+    (args.output / 'pipeline_stages.md').write_text(render(analyses), encoding='utf-8')
     print(f"Analyzed {len(analyses)} runs / {sum(len(a['rows']) for a in analyses)} session rows. No model calls.")
 
 

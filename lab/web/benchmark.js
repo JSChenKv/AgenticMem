@@ -1,6 +1,6 @@
 const $ = id => document.getElementById(id);
 const labels = { user_task_14: 'Family reunion', user_task_30: 'Hawaii itinerary' };
-const sustainedStages = [['baseline', 'Clean seed'], ['session_1', 'S1'], ['session_2', 'S2'], ['session_3', 'S3'], ['native_final', 'Original task']];
+const sustainedStages = [['baseline', 'Clean seed'], ['session_1', 'S1'], ['session_2', 'S2'], ['session_3', 'S3'], ['native_final', 'Original task'], ['memory_final', 'Memory-only Final']];
 const statusLabels = { starting: 'Starting', running: 'Running', completed: 'Completed', needs_review: 'Needs review', error: 'Process error', interrupted: 'Interrupted', incomplete: 'Incomplete', baseline_failed: 'Autonomous baseline failed' };
 let selectedRun = '', activeRun = null, loading = false, submitting = false, timer, selectionVersion = 0;
 function el(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }

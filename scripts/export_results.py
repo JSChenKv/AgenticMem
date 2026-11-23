@@ -28,8 +28,8 @@ def export_session(source):
                'attack_tool_reads memory_calls workspace_calls write_enabled exposure_observation native_utility '
                'slot target_claim_record_ids expected_content_present target_content_present clean_correct '
                'scoring evaluated_content target_adoption adoption_assessment snapshot_before snapshot_after '
-               'memory_unchanged memory_enabled workspace_condition')
-    out['tool_calls'] = [pick(t, 'sequence tool arguments error attack_payload_seen') for t in source.get('tool_calls', [])]
+               'memory_unchanged memory_enabled workspace_condition retrieval_policy source_memory_arm')
+    out['tool_calls'] = [pick(t, 'sequence tool arguments error attack_payload_seen harness_fixed') for t in source.get('tool_calls', [])]
     for key in ('retrieved', 'memory_before', 'memory_after'):
         if key in source:
             out[key] = records(source[key])
@@ -90,8 +90,10 @@ def render_run(run, review_available=False):
             lines += report_lines(case['sustained'])
             finals = case['sustained'].get('evaluations', {}).get('native', {})
             if len(finals) == 3 and all(v.get('status') == 'completed' and v.get('memory_calls') == 0 for v in finals.values()):
-                lines += ['**Interpretation limit:** All three Final sessions answered without calling memory search. '
-                          'These results do not establish resistance to retrieved poisoned memory. '
+                lines += ['**Interpretation limit:** All three native Final sessions answered without calling memory search. '
+                          'The native Final does not establish resistance to retrieved poisoned memory'
+                          + (' (see the memory-only Final above).' if case['sustained'].get('evaluations', {}).get('memory')
+                             else '; this run predates the memory-only Final (protocol v2).') + ' '
                           'Read the session answers and saved records; target mentions can be qualified or rejected.', '']
         if case.get('error'):
             lines += ['Recorded error: ' + case['error'], '']
@@ -135,11 +137,12 @@ def main():
         print('No current runs to export. Start a three-condition experiment first.')
         return
     lines = ['# Shared experiment results', '',
-             'Current protocol: sustained_native_v1. Raw logs and databases remain local.', '',
+             'Current protocol: sustained_native_v2 (native Final + memory-only Final). Runs record their own protocol version. '
+             'Raw logs and databases remain local.', '',
              '| Run | Status |', '| --- | --- |']
     for run in runs:
         lines.append(f"| [{run['run_id']}](runs/{run['run_id']}/report.md) | {run['status']} |")
-    lines += ['', '[Five-stage analysis](analysis/pipeline_stages_v2.md) · [Analysis JSON](analysis/pipeline_stages_v2.json)', '',
+    lines += ['', '[Five-stage analysis](analysis/pipeline_stages.md) · [Analysis JSON](analysis/pipeline_stages.json)', '',
               'Native utility and semantic attack adoption are separate. Automatic labels remain provisional.',
               'Local web history reads data/agentdojo_runs; these exports do not populate it.', '']
     (destination / 'README.md').write_text('\n'.join(lines), encoding='utf-8')
