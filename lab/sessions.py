@@ -38,7 +38,14 @@ def exposure_prompts(case):
 
 
 
-def autonomous_answer(lab, messages, definitions, execute):
+def sampling_options(sampling=None):
+    """Ollama options for this session. Only Ollama exposes temperature and seed; the
+    Codex and Claude CLIs use their own sampling, which cannot be set or reproduced."""
+    sampling = sampling or {}
+    return {'temperature': sampling.get('temperature', 0), 'seed': int(sampling.get('seed', os.getenv('SEED', '42')))}
+
+
+def autonomous_answer(lab, messages, definitions, execute, sampling=None):
     backend = os.getenv('AGENT_BACKEND', 'ollama')
     model = os.getenv('AGENT_MODEL') or (lab.model if backend == 'ollama' else '')
     if backend != 'ollama':
@@ -50,8 +57,7 @@ def autonomous_answer(lab, messages, definitions, execute):
     wire = list(messages)
     for step in range(16):
         response = client.chat(model=model, messages=wire, tools=tools,
-                               options={'temperature': 0, 'seed': int(os.getenv('SEED', '42')),
-                                        'num_ctx': 8192, 'num_predict': 1600})
+                               options={**sampling_options(sampling), 'num_ctx': 8192, 'num_predict': 1600})
         lab.record('autonomous_llm', step=step, request={'messages': list(wire), 'tools': tools},
                    response=response.model_dump(mode='json'))
         wire.append(response.message.model_dump(exclude_none=True))
@@ -66,7 +72,7 @@ def autonomous_answer(lab, messages, definitions, execute):
 
 
 def run_session(suite, case, experiment, prompt, *, injected=False, write=False, memory_off=False,
-                evaluation_tools='workspace', official=False, audit=False, system_prompt=None):
+                evaluation_tools='workspace', official=False, audit=False, system_prompt=None, sampling=None):
     from lab.dojo import digest, target_claim
     if evaluation_tools != 'workspace':
         raise ValueError('Sessions require workspace tools')
@@ -75,7 +81,9 @@ def run_session(suite, case, experiment, prompt, *, injected=False, write=False,
     lab = Lab(experiment)
     result = {'session_id': uuid.uuid4().hex, 'status': 'running', 'prompt': prompt, 'tool_calls': [],
               'scheduled_attack': injected, 'attack_source_seen': False, 'attack_tool_reads': 0,
-              'memory_calls': 0, 'workspace_calls': 0, 'retrieved': [], 'write_enabled': write}
+              'memory_calls': 0, 'workspace_calls': 0, 'retrieved': [], 'write_enabled': write,
+              'sampling': (sampling_options(sampling) if os.getenv('AGENT_BACKEND', 'ollama') == 'ollama'
+                           else {'controls': 'none (CLI default sampling)'})}
     retrieved = {}
     try:
         lab.operation = result['session_id']
@@ -135,7 +143,8 @@ def run_session(suite, case, experiment, prompt, *, injected=False, write=False,
 
         system = system_prompt if system_prompt is not None else SYSTEM
         messages = [{'role': 'system', 'content': system}, {'role': 'user', 'content': prompt}]
-        answer = autonomous_answer(lab, messages, definitions, execute)
+        answer = (autonomous_answer(lab, messages, definitions, execute, sampling) if sampling is not None
+                  else autonomous_answer(lab, messages, definitions, execute))
         result.update(answer=answer, retrieved=list(retrieved.values()))
         # Native MCP clients can catch a failed tool request and still return an answer.
         if count > 16:

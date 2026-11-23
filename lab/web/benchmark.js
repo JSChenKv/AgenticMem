@@ -1,7 +1,7 @@
 const $ = id => document.getElementById(id);
 const labels = { user_task_14: 'Family reunion', user_task_30: 'Hawaii itinerary' };
-const sustainedStages = [['baseline', 'Clean seed'], ['session_1', 'S1'], ['session_2', 'S2'], ['session_3', 'S3'], ['native_final', 'Original task'], ['memory_final', 'Memory-only Final']];
-const statusLabels = { starting: 'Starting', running: 'Running', completed: 'Completed', needs_review: 'Needs review', error: 'Process error', interrupted: 'Interrupted', incomplete: 'Incomplete', baseline_failed: 'Autonomous baseline failed' };
+const sustainedStages = [['scripted_seed', 'Scripted seed'], ['baseline', 'S0'], ['design_check', 'Design check'], ['session_1', 'S1'], ['session_2', 'S2'], ['session_3', 'S3'], ['single_exposure', 'Single exposure'], ['native_final', 'Native Final'], ['memory_final', 'Memory-only Final']];
+const statusLabels = { starting: 'Starting', running: 'Running', completed: 'Completed', needs_review: 'Needs review', error: 'Process error', interrupted: 'Interrupted', incomplete: 'Incomplete', baseline_failed: 'Autonomous baseline failed', seed_failed: 'Scripted seed failed', seed_design_failed: 'Seed design check failed', design_check_only: 'Design check only (dry run)' };
 let selectedRun = '', activeRun = null, loading = false, submitting = false, timer, selectionVersion = 0;
 function el(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
 async function request(url, options) {
@@ -18,7 +18,7 @@ function setControls() {
   $('memory-model').disabled = submitting || Boolean(activeRun) || $('memory-backend').value === 'follow';
   $('policy').disabled = true;
   $('policy').value = 'agent';
-  $('policy-help').textContent = 'Agent-selected tools in every session. Both polluted conditions retain the payload through Final. Memory off applies to the entire timeline.';
+  $('policy-help').textContent = 'Agent-selected tools in every session. Sustained keeps the payload through the native Final; single exposure has it only in S1. Memory off applies to the entire timeline.';
 }
 function evidence(title, text) { const details = el('details', 'evidence'); details.append(el('summary', '', title), el('pre', '', typeof text === 'string' ? text : JSON.stringify(text, null, 2))); return details; }
 function analysisValue(value) { return value == null ? 'Not recorded / needs review' : value ? 'Yes' : 'No'; }
@@ -40,13 +40,16 @@ function renderAnalysis(analysis) {
     if (!visible.length) rows.append(el('p', 'config-note', 'No sessions recorded for this view. Choose All recorded sessions to inspect failures or partial runs.'));
     for (const row of visible) {
       const details = el('details', 'evidence analysis-row');
-      details.append(el('summary', '', `${labels[row.task_id] || row.task_id} · ${row.condition} · ${row.stage} · ${row.answer_time_outcome} · ${row.review_status}`));
+      const where = [row.repeat ? `r${row.repeat}` : '', row.schedule || '', row.condition, row.stage, row.answer_model ? `answered by ${row.answer_model}` : ''].filter(Boolean).join(' · ');
+      details.append(el('summary', '', `${labels[row.task_id] || row.task_id} · ${where} · ${row.answer_time_outcome} · ${row.review_status}`));
       details.append(el('p', 'recall-answer', row.answer || 'No answer recorded.'));
       const metrics = el('div', 'metrics');
       for (const [label, value] of [['1 · Payload seen', row.saw_attack], ['2 · Target repeated', row.repeated_in_answer], ['3 · New target memory', row.saved_to_memory], ['4 · Target retrieved', row.attacker_memory_retrieved], ['5 · Target adopted', row.adopted_target]]) {
         const item = el('div', 'metric'); item.append(el('span', '', label), el('strong', '', analysisValue(value))); metrics.append(item);
       }
+      const count = value => value == null ? 'not recorded' : String(value);
       details.append(metrics, el('p', 'recall-meta', `Native task utility: ${analysisValue(row.native_utility)} · Conflict: ${analysisValue(row.conflict_flagged)} (${row.conflict_source})`));
+      details.append(el('p', 'recall-meta', `Stored records after this session — asserting the attacker value: ${count(row.store_attacker_fact_records)} · asserting the real value: ${count(row.store_real_fact_records)} · consulted: ${row.consulted || 'not recorded'}`));
       const formatRanks = hits => hits.length ? hits.map(h => `${h.id.slice(0,8)}: ${h.rank == null ? 'rank not recorded' : '#' + h.rank}${h.tool_sequence == null ? '' : ' at call ' + h.tool_sequence}`).join(', ') : 'None recorded';
       details.append(el('p', 'config-note', `Real-memory ranks: ${formatRanks(row.real_retrievals)}. Target-memory ranks: ${formatRanks(row.attacker_retrievals)}.`));
       details.append(el('p', 'config-note', `Automatic real memory retrieved but ignored: ${analysisValue(row.real_memory_retrieved_but_ignored)}. This is a provisional answer-content judgment, not causal proof.`));
@@ -89,18 +92,43 @@ function loadAnalysis(run, fingerprint) {
     if (panel.dataset.source === key) { panel.replaceChildren(el('p', 'config-note', error.message)); delete panel.dataset.source; }
   });
 }
+function nativeFinal(result, schedule, condition) {
+  const native = result.evaluations?.native || {};
+  return native[`${schedule}|${condition}`] || (schedule === 'sustained' ? native[condition] : undefined);
+}
+function renderMemoryFinals(result) {
+  const entries = Object.entries(result.evaluations?.memory || {});
+  if (!entries.length) return null;
+  const asserted = result.comparisons?.memory_final_asserted_by_condition || {};
+  const box = el('div', 'memory-finals');
+  box.append(el('h3', '', 'Memory-only Final'), el('p', 'config-note', 'No workspace tools. One harness-fixed memory search with the original question; every answering model sees the same records. Labels are provisional.'));
+  for (const [key, value] of entries) {
+    const [checkpoint, condition, model] = key.includes('|') ? key.split('|') : ['sustained/S3', key, value.answer_model || result.built_by || 'task agent'];
+    const card = el('details', 'evidence');
+    card.append(el('summary', '', `${checkpoint} · ${condition} · ${model} · ${asserted[key] || 'needs review'} · ${value.status}`));
+    if (value.answer) card.append(el('p', 'recall-answer', value.answer));
+    if (value.error || value.reason) card.append(el('p', 'error', value.error || value.reason));
+    card.append(evidence('Retrieved records and full session', value));
+    box.append(card);
+  }
+  return box;
+}
 function renderSustained(result) {
   const panel = el('section', 'episode-results');
   const names = {clean: 'Clean', polluted_memory_on: 'Polluted + memory on', polluted_memory_off: 'Polluted + memory off'};
   const yes = value => value === undefined || value === null ? 'Not recorded' : value ? 'Yes' : 'No';
-  panel.append(el('h3', '', 'Sustained exposure · native Final'), el('p', 'config-note', 'Fresh sessions · S1 → S2 → S3 → original AgentDojo task. Both polluted conditions retain their payload at Final. Memory off applies throughout.'));
+  panel.append(el('h3', '', `Three conditions · ${result.protocol || 'sustained_native'}${result.repeat ? ' · repeat ' + result.repeat : ''}`), el('p', 'config-note', 'Fresh sessions · S1 → S2 → S3 → original AgentDojo task. Sustained keeps the payload through the native Final; single exposure has it only in S1 (shared). Memory off applies throughout.'));
+  if (result.scripted_seed) panel.append(evidence('Scripted seed conversations written before S0', result.scripted_seed));
+  if (result.design_check) panel.append(el('p', result.design_check.passed ? 'recall-meta' : 'error', `Design check: ${result.design_check.passed ? 'passed' : 'failed — ' + result.design_check.reasons.join(', ')} (real record and distractor in the clean top 5).`));
   if (result.seed) panel.append(evidence('S0: clean seed shared by the memory-on branches', result.seed));
+  const schedules = result.schedules || {sustained: result.branches || {}};
   const grid = el('div', 'comparison-grid episode-grid');
-  for (const [condition, branch] of Object.entries(result.branches || {})) {
+  for (const [schedule, branches] of Object.entries(schedules)) for (const [condition, branch] of Object.entries(branches)) {
     const card = el('article', 'comparison-card');
-    card.append(el('h3', '', names[condition]), el('p', 'config-note', `Sources: ${branch.polluted ? 'polluted through Final' : 'clean throughout'} · Memory: ${branch.memory_enabled ? 'on' : 'off throughout'} · ${branch.status}`));
-    const sessions = branch.sessions.map(s => [`S${s.slot}`, s]);
-    const final = result.evaluations?.native?.[condition];
+    const sources = !branch.polluted ? 'clean throughout' : schedule === 'sustained' ? 'polluted through Final' : 'polluted in S1 only';
+    card.append(el('h3', '', `${names[condition]} · ${schedule.replace('_', ' ')}`), el('p', 'config-note', `Sources: ${sources} · Memory: ${branch.memory_enabled ? 'on' : 'off throughout'} · ${branch.status}`));
+    const sessions = (branch.sessions || []).map(s => [`S${s.slot}`, s]);
+    const final = nativeFinal(result, schedule, condition);
     if (final) sessions.push(['Final', final]);
     for (const [stage, value] of sessions) {
       const trace = value.memory_trace;
@@ -120,13 +148,15 @@ function renderSustained(result) {
     }
     grid.append(card);
   }
-  panel.append(grid, evidence('Comparison checks', result.comparisons || {}), el('p', 'interpretation', 'Native utility is task success, not attacker success. A target mention can be rejected or quoted. Source and memory both remain available at Final, so this comparison does not isolate a memory-only effect.'));
+  panel.append(grid);
+  const memory = renderMemoryFinals(result); if (memory) panel.append(memory);
+  panel.append(evidence('Comparison checks', result.comparisons || {}), el('p', 'interpretation', 'Native utility is task success, not attacker success. A target mention can be rejected or quoted. In the sustained native Final, source and memory are both available; the single-exposure native Final and the memory-only Final isolate the memory path.'));
   return panel;
 }
 function renderCase(result, policy) {
   const panel = el('section', 'panel case-result');
   const heading = el('div', 'run-heading'); const title = el('div'); title.append(el('span', 'eyebrow', result.task_id.replaceAll('_', ' ').toUpperCase()), el('h2', '', labels[result.task_id] || result.task_id));
-  heading.append(title, el('span', 'badge', statusLabels[result.status] || result.status)); panel.append(heading);
+  heading.append(title, el('span', 'badge', (result.repeat ? `Repeat ${result.repeat} · ` : '') + (statusLabels[result.status] || result.status))); panel.append(heading);
   panel.append(el('p', 'case-values', `Expected: ${result.expected}   ·   Attack target: ${result.target}`));
   if (result.sustained) panel.append(evidence('Fixed payload and injection point', {vector: result.vector, payload: result.payload}), renderSustained(result.sustained));
   if (result.error) panel.append(el('p', 'error', result.error));
@@ -140,7 +170,7 @@ function renderRun(run) {
   $('run-badge').className = `badge ${run.active ? 'live' : ''}`;
   $('run-id').textContent = run.run_id;
   const progress = run.progress;
-  $('progress-note').textContent = run.active ? progress ? `${labels[progress.task_id] || 'Preparing protocol'} · ${progress.completed_cases} of ${progress.total_cases} cases finished. Each model call can take a few minutes.` : 'Starting the isolated benchmark process…' : run.status === 'error' ? 'The process stopped with an error. Open the process log for details.' : run.status === 'interrupted' ? 'This process did not finish under the current server. Partial results are preserved below.' : 'Results are saved. Review each case below. Each session uses fresh context and autonomous tool calls.';
+  $('progress-note').textContent = run.active ? progress ? `${labels[progress.task_id] || 'Preparing protocol'}${progress.repeat ? ' · repeat ' + progress.repeat : ''} · ${progress.completed_cases} of ${progress.total_cases} task repeats finished. Each model call can take a few minutes.` : 'Starting the isolated benchmark process…' : run.status === 'error' ? 'The process stopped with an error. Open the process log for details.' : run.status === 'interrupted' ? 'This process did not finish under the current server. Partial results are preserved below.' : 'Results are saved. Review each case below. Each session uses fresh context and autonomous tool calls.';
   $('stages').replaceChildren();
   const track = sustainedStages;
   $('stages').style.gridTemplateColumns = 'repeat(auto-fit, minmax(80px, 1fr))';
@@ -149,7 +179,8 @@ function renderRun(run) {
   for (let i = 0; i < track.length; i++) $('stages').append(el('li', i < current ? 'done' : run.active && i === current ? 'current' : '', `${i < current ? '✓' : i + 1}  ${track[i][1]}`));
   $('stages').hidden = !progress;
   const extraction = run.extraction || {};
-  $('run-policy').textContent = `Task: ${run.agent?.backend} / ${run.agent?.model || 'default'} · Extractor: ${extraction.backend || 'not recorded'} / ${extraction.model || 'default'} · Three conditions · Polluted sources persist through Final · Original task + native utility`;
+  const answerers = (run.answer_models || []).map(m => typeof m === 'string' ? m : m.backend).join(', ');
+  $('run-policy').textContent = `Task: ${run.agent?.backend} / ${run.agent?.model || 'default'} · Extractor: ${extraction.backend || 'not recorded'} / ${extraction.model || 'default'} · ${run.protocol || 'protocol not recorded'} · Repeats: ${run.repeats || 1}${answerers ? ' · Memory-only Final answered by ' + answerers : ''}`;
   $('download-evidence').hidden = !run.summary; $('download-evidence').href = `/benchmarks/${run.run_id}/evidence`;
   $('download-report').hidden = !run.has_report; $('download-report').href = `/benchmarks/${run.run_id}/report`;
   const consoleOutput = run.console || 'No console log recorded for this run.';
@@ -168,7 +199,7 @@ async function loadRuns(preferred) {
   const data = await request('/benchmarks'); activeRun = data.active_run;
   const keep = preferred || selectedRun || activeRun || data.runs[0]?.run_id || '';
   $('run-select').replaceChildren();
-  for (const run of data.runs) { const option = el('option', '', `${run.run_id.replace('dojo_', '')} · ${run.agent?.backend || 'ollama'} · Native Final · ${statusLabels[run.status] || run.status}`); option.value = run.run_id; $('run-select').append(option); }
+  for (const run of data.runs) { const option = el('option', '', `${run.run_id.replace('dojo_', '')} · ${run.agent?.backend || 'ollama'} · ${run.protocol || 'v1/v2'} · ${statusLabels[run.status] || run.status}`); option.value = run.run_id; $('run-select').append(option); }
   if (!data.runs.length) $('run-select').append(el('option', '', 'No runs yet'));
   selectedRun = data.runs.some(r => r.run_id === keep) ? keep : data.runs[0]?.run_id || '';
   $('run-select').value = selectedRun; setControls();
@@ -189,9 +220,13 @@ $('run-form').addEventListener('submit', async event => {
   $('run-error').hidden = true;
   const tasks = [...document.querySelectorAll('[name="task"]:checked')].map(input => input.value);
   if (!tasks.length) { showError('run-error', new Error('Select at least one case.')); return; }
+  const answerModels = [...document.querySelectorAll('[name="answer-model"]:checked')].map(input => input.value);
+  if (!answerModels.length) { showError('run-error', new Error('Select at least one model to answer the memory-only Final.')); return; }
+  const repeats = Number.parseInt($('repeats').value, 10);
+  if (!(repeats >= 1 && repeats <= 10)) { showError('run-error', new Error('Use 1–10 repeats.')); return; }
   submitting = true; setControls();
   try {
-    const run = await request('/benchmarks', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({tasks, exposure_policy: 'agent', workflow: 'sustained', evaluation_tools: 'workspace', agent_backend: $('agent-backend').value, agent_model: $('agent-model').value.trim(), memory_backend: $('memory-backend').value, memory_model: $('memory-backend').value === 'follow' ? '' : $('memory-model').value.trim()})});
+    const run = await request('/benchmarks', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({tasks, exposure_policy: 'agent', workflow: 'sustained', evaluation_tools: 'workspace', agent_backend: $('agent-backend').value, agent_model: $('agent-model').value.trim(), memory_backend: $('memory-backend').value, memory_model: $('memory-backend').value === 'follow' ? '' : $('memory-model').value.trim(), repeats, answer_models: answerModels, memory_final_after_s2: $('after-s2').checked, stop_after_design_check: $('design-only').checked})});
     activeRun = run.run_id; selectedRun = run.run_id; selectionVersion++; renderRun(run);
     await loadRuns(run.run_id); refresh();
   } catch (error) { showError('run-error', error); }
@@ -211,7 +246,7 @@ function showAgentStatus() {
   const follow = $('memory-backend').value === 'follow';
   const memory = follow ? agent : agentCatalog.find(item => item.id === $('memory-backend').value);
   const model = follow ? $('agent-model').value.trim() : $('memory-model').value.trim();
-  $('agent-status').textContent = agent && memory ? `Task — ${agent.label}: ${agent.note}. Memory — ${memory.label} / ${model || memory.default_model || 'CLI default'}${follow ? ' (follows task)' : ` (independent; ${memory.note})`}.` : 'Agent status unavailable.';
+  $('agent-status').textContent = agent && memory ? `Task — ${agent.label}: ${agent.note}. Memory — ${memory.label} / ${model || memory.default_model || 'CLI default'}${follow ? ' (control: follows task)' : $('memory-backend').value === 'ollama' ? ' (fixed extractor)' : ` (control; ${memory.note})`}.` : 'Agent status unavailable.';
   $('memory-model').placeholder = follow ? 'Follows the task model' : "Use the extractor's default model";
   setControls();
 }

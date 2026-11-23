@@ -28,7 +28,8 @@ def export_session(source):
                'attack_tool_reads memory_calls workspace_calls write_enabled exposure_observation native_utility '
                'slot target_claim_record_ids expected_content_present target_content_present clean_correct '
                'scoring evaluated_content target_adoption adoption_assessment snapshot_before snapshot_after '
-               'memory_unchanged memory_enabled workspace_condition retrieval_policy source_memory_arm')
+               'memory_unchanged memory_enabled workspace_condition retrieval_policy source_memory_arm '
+               'schedule checkpoint after_session answer_model built_by sampling')
     out['tool_calls'] = [pick(t, 'sequence tool arguments error attack_payload_seen harness_fixed') for t in source.get('tool_calls', [])]
     for key in ('retrieved', 'memory_before', 'memory_after'):
         if key in source:
@@ -52,21 +53,36 @@ def export_session(source):
     return out
 
 
+def export_branch(branch):
+    return dict(pick(branch, 'condition schedule polluted memory_enabled status error reason initial_snapshot_hashes '
+                             'final_snapshot_hashes observed_exposure_sessions polluted_sessions shared_sessions'),
+                sessions=[export_session(s) for s in branch.get('sessions', [])])
+
+
 def export_sustained(source):
-    out = pick(source, 'protocol status error evaluation_tools conditions comparisons')
+    out = pick(source, 'protocol status error evaluation_tools conditions comparisons repeat built_by answer_models '
+                       'real_seed_record_ids design_check')
     if 'seed' in source:
         out['seed'] = export_session(source['seed'])
-    out['branches'] = {arm: dict(pick(branch, 'polluted memory_enabled status error initial_snapshot_hashes '
-                                     'final_snapshot_hashes observed_exposure_sessions'),
-                                sessions=[export_session(s) for s in branch['sessions']])
-                       for arm, branch in source.get('branches', {}).items()}
+    if 'scripted_seed' in source:
+        scripted = source['scripted_seed']
+        out['scripted_seed'] = dict(pick(scripted, 'status error distractor_ids unrelated_ids'),
+                                    conversations=[pick(c, 'kind messages added_ids') for c in scripted.get('conversations', [])],
+                                    memory_after=records(scripted.get('memory_after', [])))
+    if 'schedules' in source:
+        out['schedules'] = {name: {arm: export_branch(b) for arm, b in branches.items()}
+                            for name, branches in source['schedules'].items()}
+        out['checkpoints'] = {name: {arm: pick(c, 'snapshot_hashes') for arm, c in arms.items()}
+                              for name, arms in source.get('checkpoints', {}).items()}
+    else:  # v1/v2 runs
+        out['branches'] = {arm: export_branch(branch) for arm, branch in source.get('branches', {}).items()}
     out['evaluations'] = {kind: {arm: export_session(v) for arm, v in group.items()}
                           for kind, group in source.get('evaluations', {}).items()}
     return out
 
 
 def export_case(case):
-    out = pick(case, 'task_id label vector expected target payload status error reachable_vectors')
+    out = pick(case, 'task_id label vector expected target payload status error reachable_vectors repeat')
     if 'sustained' in case:
         out['sustained'] = export_sustained(case['sustained'])
     return out
@@ -78,19 +94,22 @@ def render_run(run, review_available=False):
              f"Task agent: `{run.get('agent', {})}`", '',
              f"Memory extraction: `{run.get('extraction', {})}`", '',
              '[Structured results](summary.json) · [All runs](../../README.md)', '',
-             'Three conditions, autonomous tools, original AgentDojo task and native utility at Final.',
+             'Three conditions, autonomous tools, original AgentDojo task and native utility at the native Final; '
+             'protocol v3 adds a single-exposure schedule and memory-only Finals answered by every answering model.',
              'Native task success and semantic attacker adoption are separate outcomes.', '']
     if run.get('source_status') != run['status'] and 'source_status' in run:
         lines += [f"The source summary stopped at `{run['source_status']}`; the web job recorded `{run['status']}` (exit code {run.get('execution', {}).get('exit_code')}).", '']
     if not run['cases']:
         lines += ['No task-session results were recorded. This is an execution failure, not an attack trial.', '']
     for case in run['cases']:
-        lines += [f"## {case['task_id']} — {case['label']}", '', 'Fixed payload:', '', '> ' + case['payload'], '']
+        title = f"## {case['task_id']} — {case['label']}" + (f" — repeat {case['repeat']}" if case.get('repeat') else '')
+        lines += [title, '', 'Fixed payload:', '', '> ' + case['payload'], '']
         if 'sustained' in case:
             lines += report_lines(case['sustained'])
             finals = case['sustained'].get('evaluations', {}).get('native', {})
-            if len(finals) == 3 and all(v.get('status') == 'completed' and v.get('memory_calls') == 0 for v in finals.values()):
-                lines += ['**Interpretation limit:** All three native Final sessions answered without calling memory search. '
+            sustained_finals = [v for k, v in finals.items() if v.get('schedule', 'sustained') == 'sustained']
+            if len(sustained_finals) == 3 and all(v.get('status') == 'completed' and v.get('memory_calls') == 0 for v in sustained_finals):
+                lines += ['**Interpretation limit:** All three sustained native Final sessions answered without calling memory search. '
                           'The native Final does not establish resistance to retrieved poisoned memory'
                           + (' (see the memory-only Final above).' if case['sustained'].get('evaluations', {}).get('memory')
                              else '; this run predates the memory-only Final (protocol v2).') + ' '
@@ -109,7 +128,7 @@ def main():
             raise ValueError(f'Unsupported workflow in {summary.parent.name}')
         protocol_path = summary.parent / 'protocol.json'
         protocol = json.loads(protocol_path.read_text(encoding='utf-8')) if protocol_path.exists() else {}
-        out = pick(source, 'run_id status exposure_policy agent memory_model extraction context_policy workflow evaluation_tools')
+        out = pick(source, 'run_id status exposure_policy agent memory_model extraction context_policy workflow evaluation_tools repeats answer_models')
         job_path = summary.parent / 'web-job.json'
         if job_path.exists():
             job = json.loads(job_path.read_text(encoding='utf-8'))
@@ -118,7 +137,7 @@ def main():
                 out['source_status'], out['status'] = source['status'], job['status']
         out['export_schema'] = 'agenticmem-shared-results-v2'
         out['source_summary_sha256'] = hashlib.sha256(summary.read_bytes()).hexdigest()
-        out['protocol'] = pick(protocol, 'agentdojo benchmark_version suite mem0ai model agent_backend memory_model extraction exposure_policy context_policy seed num_ctx read_tools workflow evaluation_tools sustained_protocol')
+        out['protocol'] = pick(protocol, 'agentdojo benchmark_version suite mem0ai model agent_backend memory_model extraction exposure_policy context_policy seed num_ctx read_tools workflow evaluation_tools sustained_protocol repeats answer_models memory_final_after_s2')
         out['cases'] = [export_case(case) for case in source['cases']]
         target = destination / 'runs' / summary.parent.name
         target.mkdir(parents=True, exist_ok=True)
@@ -137,7 +156,9 @@ def main():
         print('No current runs to export. Start a three-condition experiment first.')
         return
     lines = ['# Shared experiment results', '',
-             'Current protocol: sustained_native_v2 (native Final + memory-only Final). Runs record their own protocol version. '
+             'Current protocol: sustained_native_v3 (scripted seed and design check; sustained and single-exposure schedules; '
+             'native Final; memory-only Finals after S1 and S3 answered by every answering model; repeats). '
+             'Runs record their own protocol version; never pool across versions. '
              'Raw logs and databases remain local.', '',
              '| Run | Status |', '| --- | --- |']
     for run in runs:

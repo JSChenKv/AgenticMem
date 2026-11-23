@@ -65,7 +65,7 @@ def test_jobs_run_in_isolated_child_and_serialize_model_access(monkeypatch, tmp_
     monkeypatch.setattr(benchmark.subprocess, 'Popen', launch)
     client = TestClient(api.app)
     try:
-        response = client.post('/benchmarks', json={'tasks': ['user_task_14']})
+        response = client.post('/benchmarks', json={'tasks': ['user_task_14'], 'answer_models': ['ollama']})
         assert response.status_code == 202
         run = response.json()
         assert run['active'] and run['status'] == 'running'
@@ -73,7 +73,7 @@ def test_jobs_run_in_isolated_child_and_serialize_model_access(monkeypatch, tmp_
         assert captured[0][1]['cwd'] == tmp_path
         assert captured[0][1]['env']['PYTHONUTF8'] == '1'
         assert (manager.path(run['run_id']) / 'web-job.json').exists()
-        assert client.post('/benchmarks', json={'tasks': ['user_task_30']}).status_code == 409
+        assert client.post('/benchmarks', json={'tasks': ['user_task_30'], 'answer_models': ['ollama']}).status_code == 409
         assert client.post('/chat', json={'text': 'hello'}).status_code == 409
         directory = manager.path(run['run_id'])
         (directory / 'summary.json').write_text(json.dumps({'status': 'completed_with_limitations', 'cases': []}))
@@ -94,7 +94,7 @@ def test_failed_launch_is_persisted_without_blocking_future_jobs(monkeypatch, tm
 
     monkeypatch.setattr(benchmark.subprocess, 'Popen', fail)
     client = TestClient(api.app)
-    assert client.post('/benchmarks', json={'tasks': ['user_task_14']}).status_code == 503
+    assert client.post('/benchmarks', json={'tasks': ['user_task_14'], 'answer_models': ['ollama']}).status_code == 503
     assert not manager.running()
     assert manager.list()[0]['status'] == 'error'
 
@@ -122,7 +122,7 @@ def test_surviving_worker_lock_blocks_a_second_run_and_is_visible(tmp_path):
         assert manager.running() and manager.active_run == RUN
         assert manager.get(RUN)['active']
         with pytest.raises(RuntimeError, match='already running'):
-            manager.start(['user_task_14'], 'agent')
+            manager.start(['user_task_14'], 'agent', answer_models=['ollama'])
     assert not manager.running()
     assert manager.get(RUN)['status'] == 'interrupted'
 

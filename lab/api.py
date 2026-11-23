@@ -158,7 +158,14 @@ def memories(experiment: str = 'default', user: str = 'researcher'):
 
 
 class BenchmarkRequest(AgentSettings):
+    # v3: one fixed extractor (local Qwen) for all task models; 'follow' is the optional control.
+    memory_backend: Literal['follow', 'ollama', 'codex', 'claude'] = 'ollama'
     tasks: list[Literal['user_task_14', 'user_task_30']] = Field(min_length=1, max_length=2)
+    repeats: int = Field(default=3, ge=1, le=10)
+    answer_models: list[Literal['ollama', 'codex', 'claude']] = Field(default_factory=lambda: ['ollama', 'codex', 'claude'],
+                                                                     min_length=1, max_length=3)
+    memory_final_after_s2: bool = False
+    stop_after_design_check: bool = False
     exposure_policy: Literal['agent'] = 'agent'
     workflow: Literal['sustained'] = 'sustained'
     evaluation_tools: Literal['workspace'] = 'workspace'
@@ -166,7 +173,7 @@ class BenchmarkRequest(AgentSettings):
 
 @app.get('/agents')
 def available_agents():
-    return {'agents': agent_catalog(), 'memory_default': 'follow', 'embedding_model': os.getenv('EMBED_MODEL', 'bge-m3:latest'),
+    return {'agents': agent_catalog(), 'memory_default': 'ollama', 'embedding_model': os.getenv('EMBED_MODEL', 'bge-m3:latest'),
             'context_policy': 'task_only_v1'}
 
 
@@ -180,7 +187,8 @@ def start_benchmark(query: BenchmarkRequest):
     with lock:
         try:
             return jobs.start(query.tasks, query.exposure_policy, query.agent_backend, query.agent_model,
-                              query.memory_backend, query.memory_model, query.workflow, query.evaluation_tools)
+                              query.memory_backend, query.memory_model, query.workflow, query.evaluation_tools,
+                              query.repeats, query.answer_models, query.memory_final_after_s2, query.stop_after_design_check)
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:

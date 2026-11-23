@@ -58,10 +58,10 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def progress(directory, task_id, stage, completed_cases, total_cases):
+def progress(directory, task_id, stage, completed_cases, total_cases, repeat=None):
     temporary = directory / 'progress.tmp'
     dump(temporary, {'task_id': task_id, 'stage': stage, 'completed_cases': completed_cases,
-                     'total_cases': total_cases, 'updated_at': datetime.now(timezone.utc).isoformat()})
+                     'total_cases': total_cases, 'repeat': repeat, 'updated_at': datetime.now(timezone.utc).isoformat()})
     # Windows readers can briefly deny replacement while polling the old file.
     # Keep the previous complete JSON visible and retry only sharing failures.
     for attempt in range(20):
@@ -173,7 +173,8 @@ def render_report(report, path):
             'Three conditions; native AgentDojo question and task utility at Final. '
             'Custom longitudinal harness, not an unmodified AgentDojo leaderboard run.', '']
     for case in report['cases']:
-        rows += [f"## {case['task_id']} — {case['label']}", '', 'Fixed payload:', '', '> ' + case['payload'], '']
+        title = f"## {case['task_id']} — {case['label']}" + (f" — repeat {case['repeat']}" if case.get('repeat') else '')
+        rows += [title, '', 'Fixed payload:', '', '> ' + case['payload'], '']
         if case.get('sustained'):
             rows += report_lines(case['sustained'])
         if case.get('error'):
@@ -188,16 +189,34 @@ def main():
     parser.add_argument('--exposure-policy', choices=['agent'], default='agent')
     parser.add_argument('--agent-backend', choices=['ollama', 'codex', 'claude'], default='ollama')
     parser.add_argument('--agent-model', default='')
-    parser.add_argument('--memory-backend', choices=['follow', 'ollama', 'codex', 'claude'], default='follow')
+    # v3: one fixed extractor (local Qwen) for every task model; 'follow' is the optional control.
+    parser.add_argument('--memory-backend', choices=['follow', 'ollama', 'codex', 'claude'], default='ollama')
     parser.add_argument('--memory-model', default='')
     parser.add_argument('--workflow', choices=['sustained'], default='sustained')
     parser.add_argument('--evaluation-tools', choices=['workspace'], default='workspace')
+    parser.add_argument('--repeats', type=int, default=3, help='independent repeats per task (repeat k uses seed k)')
+    parser.add_argument('--answer-models', nargs='+', choices=['ollama', 'codex', 'claude'], default=['ollama', 'codex', 'claude'],
+                        help='models that answer every memory-only Final (cross-model answering)')
+    parser.add_argument('--memory-final-after-s2', action='store_true', help='also run memory-only Finals after S2')
+    parser.add_argument('--stop-after-design-check', action='store_true',
+                        help='dry run: scripted seed, S0 and the design check only, no attack sessions')
     parser.add_argument('--run-id', help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if not 1 <= args.repeats <= 10:
+        raise ValueError('Use 1-10 repeats')
+    if len(set(args.answer_models)) != len(args.answer_models):
+        raise ValueError('Duplicate answering model')
     validate_agent(args.agent_backend, args.agent_model)
     extraction = resolve_extraction(args.agent_backend, args.agent_model, args.memory_backend, args.memory_model)
     if args.agent_backend != 'ollama' and not cli_path(args.agent_backend):
         raise ValueError('Selected agent CLI is not installed or configured')
+    for backend in args.answer_models:
+        if backend != 'ollama' and (not cli_path(backend) or cli_status(backend).get('logged_in') is False):
+            raise ValueError(f'Answering model {backend} CLI is not installed or not logged in')
+    # The task agent answers with its own model override; other answerers use their defaults.
+    answer_models = [{'backend': b, 'model': args.agent_model if b == args.agent_backend else
+                      (os.getenv('CHAT_MODEL', 'qwen2.5:7b') if b == 'ollama' else os.getenv(b.upper() + '_MODEL', ''))}
+                     for b in args.answer_models]
     os.environ['AGENT_BACKEND'] = args.agent_backend
     os.environ['AGENT_MODEL'] = args.agent_model
     os.environ['MEMORY_BACKEND'] = args.memory_backend
@@ -223,10 +242,10 @@ def main():
     dump(ROOT / 'data' / 'benchmark-owner.json', {'run_id': run_id})
     suite = get_suite(VERSION, 'workspace')
     selected = [c for c in CASES if c['task_id'] in args.tasks]
-    progress(directory, None, 'initializing', 0, len(selected))
+    progress(directory, None, 'initializing', 0, len(selected) * args.repeats)
     # Archive protocol and inputs BEFORE model execution; no feedback-driven payload edits.
     suite_root = Path(inspect.getfile(type(suite))).parents[1]
-    source_files = [Path(__file__), ROOT / 'lab' / 'values.py', ROOT / 'lab' / 'pipeline.py', ROOT / 'lab' / 'sustained.py', ROOT / 'lab' / 'sessions.py', ROOT / 'lab' / 'core.py', ROOT / 'lab' / 'agents.py', ROOT / 'lab' / 'mcp_bridge.py',
+    source_files = [Path(__file__), ROOT / 'lab' / 'values.py', ROOT / 'lab' / 'pipeline.py', ROOT / 'lab' / 'sustained.py', ROOT / 'lab' / 'seeds.py', ROOT / 'lab' / 'sessions.py', ROOT / 'lab' / 'core.py', ROOT / 'lab' / 'agents.py', ROOT / 'lab' / 'mcp_bridge.py',
                     *sorted(suite_root.rglob('*.py')),
                     *sorted((suite_root / 'data' / 'suites' / 'workspace').rglob('*.yaml')),
                     *sorted((suite_root / 'default_suites').glob('*/workspace/user_tasks.py'))]
@@ -237,32 +256,37 @@ def main():
                 'cli': cli_status(args.agent_backend) if args.agent_backend != 'ollama' else None,
                 'seed': seed, 'num_ctx': 8192, 'read_tools': READ_TOOLS, 'cases': selected, 'exposure_policy': args.exposure_policy,
                 'workflow': args.workflow, 'evaluation_tools': args.evaluation_tools,
+                'repeats': args.repeats, 'answer_models': answer_models,
+                'answer_clis': {b: cli_status(b) for b in args.answer_models if b != 'ollama'},
+                'memory_final_after_s2': args.memory_final_after_s2, 'stop_after_design_check': args.stop_after_design_check,
                 'models': Client(host=url).list().model_dump(mode='json'),
                 'source_sha256': {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in source_files}}
     if args.workflow == 'sustained':
         from lab.sustained import protocol, SYSTEM
-        manifest.update(sustained_protocol=protocol(selected, suite),
+        manifest.update(sustained_protocol=protocol(selected, suite, args.repeats, answer_models, args.memory_final_after_s2),
                         read_tools=['search_memory', *READ_TOOLS], task_prompt=SYSTEM,
                         followup_prompt=None, search_recovery_prompt=None, max_search_recoveries=0)
     dump(directory / 'protocol.json', manifest)
     snapshot = directory / 'source-snapshot'
     snapshot.mkdir()
-    for source in (Path(__file__), ROOT / 'lab' / 'values.py', ROOT / 'lab' / 'pipeline.py', ROOT / 'lab' / 'sustained.py', ROOT / 'lab' / 'sessions.py', ROOT / 'lab' / 'core.py', ROOT / 'lab' / 'agents.py', ROOT / 'lab' / 'mcp_bridge.py', ROOT / 'requirements-benchmark.lock.txt'):
+    for source in (Path(__file__), ROOT / 'lab' / 'values.py', ROOT / 'lab' / 'pipeline.py', ROOT / 'lab' / 'sustained.py', ROOT / 'lab' / 'seeds.py', ROOT / 'lab' / 'sessions.py', ROOT / 'lab' / 'core.py', ROOT / 'lab' / 'agents.py', ROOT / 'lab' / 'mcp_bridge.py', ROOT / 'requirements-benchmark.lock.txt'):
         if source.exists():
             shutil.copyfile(source, snapshot / source.name)
     report = {'run_id': run_id, 'directory': str(directory), 'cases': [], 'status': 'running', 'exposure_policy': args.exposure_policy,
               'agent': {'backend': args.agent_backend, 'model': model or 'CLI default'}, 'memory_model': manifest['memory_model'],
               'extraction': extraction, 'context_policy': 'task_only_v1',
-              'workflow': args.workflow, 'evaluation_tools': args.evaluation_tools}
+              'workflow': args.workflow, 'evaluation_tools': args.evaluation_tools,
+              'repeats': args.repeats, 'answer_models': answer_models}
     dump(directory / 'summary.json', report)
     output = ROOT / 'reports' / 'agentdojo-latest.md'
     output.parent.mkdir(exist_ok=True)
-    for case in selected:
-        result = dict(case, status='running')
-        case_dir = directory / case['task_id']
+    trials = [(case, k) for case in selected for k in range(1, args.repeats + 1)]
+    for case, repeat in trials:
+        result = dict(case, status='running', repeat=repeat)
+        case_dir = directory / f"{case['task_id']}_r{repeat}"
         case_dir.mkdir()
-        progress(directory, case['task_id'], 'baseline', len(report['cases']), len(selected))
-        print(f"[{case['task_id']}] {case['label']}: " + 'running autonomous baseline', flush=True)
+        progress(directory, case['task_id'], 'baseline', len(report['cases']), len(trials), repeat)
+        print(f"[{case['task_id']} r{repeat}] {case['label']}: " + 'running autonomous baseline', flush=True)
         try:
             task = suite.get_user_task_by_id(case['task_id'])
             candidates = reachable_vectors(suite, task)
@@ -277,29 +301,30 @@ def main():
                     dump(directory / 'summary.json', {**report, 'cases': [*report['cases'], result]})
                 sustained = run_sustained(suite, case, 'seed_' + uuid.uuid4().hex, clone_closed_experiment,
                     lambda name: database_hashes(ROOT / 'data' / 'experiments' / name), args.evaluation_tools,
-                    lambda stage: progress(directory, case['task_id'], stage, len(report['cases']), len(selected)),
-                    checkpoint_sustained)
+                    lambda stage: progress(directory, case['task_id'], stage, len(report['cases']), len(trials), repeat),
+                    checkpoint_sustained, repeat=repeat, answer_models=answer_models,
+                    memory_final_after_s2=args.memory_final_after_s2, stop_after_design_check=args.stop_after_design_check)
                 result['status'] = sustained['status']
-                result['baseline'] = {**sustained['seed'], 'tools': sustained['seed']['tool_calls']}
+                result['baseline'] = {**sustained['seed'], 'tools': sustained['seed']['tool_calls']} if sustained.get('seed') else None
                 continue
         except Exception as exc:
             result['status'], result['error'] = 'error', repr(exc)
             if result.get('sustained', {}).get('status') == 'running':
                 result['sustained'].update(status='error', error=str(exc))
                 dump(case_dir / 'sustained.json', result['sustained'])
-            print(f"[{case['task_id']}] ERROR: {exc}", flush=True)
+            print(f"[{case['task_id']} r{repeat}] ERROR: {exc}", flush=True)
         finally:
             report['cases'].append(result)
             dump(case_dir / 'result.json', result)
             dump(directory / 'summary.json', report)
             render_report(report, output)
-            progress(directory, case['task_id'], 'case_finished', len(report['cases']), len(selected))
+            progress(directory, case['task_id'], 'case_finished', len(report['cases']), len(trials), repeat)
     statuses = {c['status'] for c in report['cases']}
     report['status'] = 'completed' if statuses == {'completed'} else 'needs_review'
     dump(directory / 'summary.json', report)
     render_report(report, output)
     shutil.copyfile(output, directory / 'report.md')
-    progress(directory, None, 'finished', len(selected), len(selected))
+    progress(directory, None, 'finished', len(trials), len(trials))
     print(f"Report: {output}\nRaw evidence: {directory}\nStatus: {report['status']}", flush=True)
 
 

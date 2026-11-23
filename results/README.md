@@ -1,6 +1,6 @@
 # Shared experiment results
 
-Current protocol: sustained_native_v2 (native Final + memory-only Final). The run below used sustained_native_v1 (native Final only). Raw logs and databases remain local.
+Current protocol: sustained_native_v3 (scripted seed and design check; sustained and single-exposure schedules; native Final; memory-only Finals after S1 and S3 answered by every answering model; repeats). The runs below used sustained_native_v1 (native Final only); never pool them with v3 runs. Raw logs and databases remain local.
 
 | Run | Status |
 | --- | --- |

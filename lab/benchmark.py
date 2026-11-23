@@ -64,7 +64,9 @@ class BenchmarkJobs:
                 owner = read_json(self.root / 'data' / 'benchmark-owner.json') or {}
                 return owner.get('run_id', 'external')
 
-    def start(self, tasks, policy, agent_backend='ollama', agent_model='', memory_backend='follow', memory_model='', workflow='sustained', evaluation_tools='workspace'):
+    def start(self, tasks, policy, agent_backend='ollama', agent_model='', memory_backend='ollama', memory_model='',
+              workflow='sustained', evaluation_tools='workspace', repeats=3, answer_models=('ollama', 'codex', 'claude'),
+              memory_final_after_s2=False, stop_after_design_check=False):
         if workflow != 'sustained' or policy != 'agent':
             raise ValueError('Only sustained exposure with agent-selected tools is supported')
         if evaluation_tools != 'workspace':
@@ -78,6 +80,14 @@ class BenchmarkJobs:
         if extraction['backend'] != 'ollama':
             if not cli_path(extraction['backend']) or cli_status(extraction['backend']).get('logged_in') is False:
                 raise ValueError(f"Memory extractor {extraction['backend']} is unavailable or not logged in.")
+        answer_models = list(answer_models)
+        if not answer_models or len(answer_models) != len(set(answer_models)) or any(b not in ('ollama', 'codex', 'claude') for b in answer_models):
+            raise ValueError('Select at least one answering model, without duplicates')
+        for backend in answer_models:
+            if backend != 'ollama' and (not cli_path(backend) or cli_status(backend).get('logged_in') is False):
+                raise ValueError(f'Answering model {backend} CLI is unavailable or not logged in. Log in or deselect it.')
+        if not isinstance(repeats, int) or not 1 <= repeats <= 10:
+            raise ValueError('Use 1-10 repeats')
         if not tasks or len(tasks) != len(set(tasks)) or any(t not in TASKS for t in tasks):
             raise ValueError('Select one or both supported tasks, without duplicates')
         try:
@@ -96,11 +106,18 @@ class BenchmarkJobs:
             job = {'run_id': run_id, 'status': 'starting', 'tasks': tasks, 'exposure_policy': policy,
                    'started_at': datetime.now(timezone.utc).isoformat(),
                    'agent': {'backend': agent_backend, 'model': agent_model or ('local default' if agent_backend == 'ollama' else 'CLI default')},
-                   'extraction': extraction, 'workflow': workflow, 'evaluation_tools': evaluation_tools}
+                   'extraction': extraction, 'workflow': workflow, 'evaluation_tools': evaluation_tools,
+                   'repeats': repeats, 'answer_models': answer_models, 'memory_final_after_s2': memory_final_after_s2,
+                   'stop_after_design_check': stop_after_design_check}
             self._write(directory / 'web-job.json', job)
             command = [sys.executable, '-m', 'lab.dojo', '--run-id', run_id, '--tasks', *tasks,
                        '--exposure-policy', policy, '--agent-backend', agent_backend, '--memory-backend', memory_backend,
-                       '--workflow', workflow, '--evaluation-tools', evaluation_tools]
+                       '--workflow', workflow, '--evaluation-tools', evaluation_tools,
+                       '--repeats', str(repeats), '--answer-models', *answer_models]
+            if memory_final_after_s2:
+                command.append('--memory-final-after-s2')
+            if stop_after_design_check:
+                command.append('--stop-after-design-check')
             if agent_model:
                 command += ['--agent-model', agent_model]
             if memory_model:
@@ -181,7 +198,10 @@ class BenchmarkJobs:
                 'memory_model': summary.get('memory_model', 'qwen2.5:7b'),
                 'extraction': summary.get('extraction', job.get('extraction', {
                     'mode': 'follow', 'backend': 'ollama', 'model': summary.get('memory_model', 'qwen2.5:7b')})),
-                'tasks': job.get('tasks', [c['task_id'] for c in summary.get('cases', [])]),
+                'tasks': job.get('tasks', sorted({c['task_id'] for c in summary.get('cases', [])})),
+                'repeats': summary.get('repeats', job.get('repeats', 1)),
+                'answer_models': summary.get('answer_models', job.get('answer_models')),
+                'protocol': next((c.get('sustained', {}).get('protocol') for c in summary.get('cases', []) if c.get('sustained')), None),
                 'exposure_policy': job.get('exposure_policy', summary.get('exposure_policy', 'unknown')),
                 'started_at': job.get('started_at'), 'error': job.get('error'),
                 'summary': summary or None, 'console': console,
@@ -195,7 +215,7 @@ class BenchmarkJobs:
             if not RUN_PATTERN.fullmatch(directory.name) or not directory.is_dir():
                 continue
             run = self.get(directory.name)
-            result.append({key: run[key] for key in ('run_id', 'status', 'active', 'tasks', 'exposure_policy', 'started_at', 'agent', 'extraction', 'workflow')})
+            result.append({key: run[key] for key in ('run_id', 'status', 'active', 'tasks', 'exposure_policy', 'started_at', 'agent', 'extraction', 'workflow', 'protocol')})
             if len(result) == 50:
                 break
         return result
