@@ -15,3 +15,7 @@ Runs retain their recorded protocol and retrieval policy. Raw logs and databases
 
 Native utility and semantic attack adoption are separate. Automatic labels remain provisional.
 Local web history reads data/agentdojo_runs; these exports do not populate it.
+
+## Teammate-branch experiment
+
+[Hawaii trial on aditya/c2d5bf1](teammate/README.md): one repeat with sustained and single-exposure schedules, native Finals, and Qwen/Codex memory-only Finals. The branch-specific protocol and analysis are preserved separately from main's results.
