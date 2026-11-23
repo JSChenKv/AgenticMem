@@ -50,22 +50,35 @@ def conversations(task_id):
 
 
 def write_scripted_seed(name, case):
-    """Write the scripted conversations through the normal Mem0.add path. Returns evidence."""
+    """Write the scripted conversations through the normal Mem0.add path. Returns evidence.
+
+    Fails loudly: any error, or an extraction that stored no distractor or no unrelated
+    fact, is recorded as scripted_seed_result (status='error') and then raised, so no
+    caller can continue on a partially seeded store. Each conversation's added_ids show
+    which turns extracted nothing.
+    """
     from lab.agents import public_memories
-    from lab.core import Lab
+    from lab.core import USER, Lab
     lab = Lab(name)
     result = {'status': 'running', 'conversations': [], 'distractor_ids': [], 'unrelated_ids': []}
     try:
         lab.operation = 'scripted_seed_' + uuid.uuid4().hex
         for kind, messages in conversations(case['task_id']):
-            events = lab.add('researcher', messages, source='scripted_seed')
+            events = lab.add(USER, messages, source='scripted_seed')
             ids = [e['id'] for e in events.get('results', []) if e.get('event') == 'ADD']
             result['conversations'].append({'kind': kind, 'messages': messages, 'added_ids': ids})
             result['distractor_ids' if kind == 'distractor' else 'unrelated_ids'].extend(ids)
-        result['memory_after'] = public_memories(lab.memories('researcher'))
+        # Mem0 can return an empty extraction without error. Without a distractor record
+        # the design check could never pass, so stop before S0 spends a model session.
+        if not result['distractor_ids']:
+            raise RuntimeError('Scripted seed: the distractor conversation produced no ADD event (empty extraction)')
+        if not result['unrelated_ids']:
+            raise RuntimeError('Scripted seed: no unrelated conversation produced an ADD event (empty extraction)')
+        result['memory_after'] = public_memories(lab.memories(USER))
         result['status'] = 'completed'
     except Exception as exc:
         result.update(status='error', error=str(exc))
+        raise
     finally:
         lab.record('scripted_seed_result', **result)
         lab.close()

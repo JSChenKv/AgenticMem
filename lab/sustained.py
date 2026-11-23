@@ -22,7 +22,7 @@ import os
 import uuid
 
 from lab.agents import CliClient, public_memories
-from lab.core import AGENT_PROMPT, Lab, TracedClient
+from lab.core import AGENT_PROMPT, USER, Lab, TracedClient
 from lab.seeds import conversations, write_scripted_seed
 from lab.sessions import exposure_prompts, run_session
 from lab.pipeline import analyze_session, VERSION as ANALYSIS_VERSION
@@ -171,9 +171,9 @@ def memory_final(suite, case, name, memory_enabled, answer_models=None):
     results = {}
     try:
         lab.operation = 'memory_final_' + uuid.uuid4().hex
-        base['memory_before'] = public_memories(lab.memories('researcher')) if memory_enabled else []
+        base['memory_before'] = public_memories(lab.memories(USER)) if memory_enabled else []
         # Memory off returns the same tool exchange with [] and never queries storage.
-        raw = lab.search('researcher', prompt)['results'] if memory_enabled else []
+        raw = lab.search(USER, prompt)['results'] if memory_enabled else []
         records = public_memories(raw)
         output = json.dumps(records, ensure_ascii=False)
         audit = [{k: r[k] for k in ('id', 'memory', 'score') if k in r} for r in raw]
@@ -184,7 +184,7 @@ def memory_final(suite, case, name, memory_enabled, answer_models=None):
         messages = [{'role': 'system', 'content': AGENT_PROMPT}, {'role': 'user', 'content': prompt},
                     {'role': 'assistant', 'content': '', 'tool_calls': [{'function': {'name': 'search_memory', 'arguments': {'query': prompt}}}]},
                     {'role': 'tool', 'tool_name': 'search_memory', 'content': output}]
-        base['memory_after'] = public_memories(lab.memories('researcher')) if memory_enabled else []
+        base['memory_after'] = public_memories(lab.memories(USER)) if memory_enabled else []
         for model in answer_models:
             result = json.loads(json.dumps(base))
             result.update(session_id=uuid.uuid4().hex, answer_model=model_key(model))
@@ -218,7 +218,7 @@ def design_check(case, name, prompt, real_ids, distractor_ids):
     lab = Lab(name)
     try:
         lab.operation = 'design_check_' + uuid.uuid4().hex
-        ids = [r['id'] for r in lab.search('researcher', prompt)['results']]
+        ids = [r['id'] for r in lab.search(USER, prompt)['results']]
     finally:
         lab.close()
     real_ids, distractor_ids = set(real_ids), set(distractor_ids)
@@ -265,7 +265,11 @@ def run_case(suite, case, seed_name, clone, hashes, evaluation_tools='workspace'
         return {'experiment': name, 'snapshot_hashes': copied}
 
     on_progress('scripted_seed')
-    scripted = write_scripted_seed(seed_name, case)
+    try:
+        scripted = write_scripted_seed(seed_name, case)
+    except Exception as exc:
+        # Seeding raises on any failure; record it here and never continue on a partial store.
+        scripted = {'status': 'error', 'error': str(exc)}
     result['scripted_seed'] = scripted
     on_checkpoint(result)
     if scripted['status'] != 'completed':

@@ -10,7 +10,7 @@ import uuid
 from ollama import Client
 
 from lab.agents import CliClient, public_memories
-from lab.core import Lab
+from lab.core import USER, Lab
 from agentdojo.functions_runtime import FunctionsRuntime
 from agentdojo.agent_pipeline.tool_execution import tool_result_to_str
 
@@ -89,7 +89,7 @@ def run_session(suite, case, experiment, prompt, *, injected=False, write=False,
         lab.operation = result['session_id']
         if audit:
             result.update(memory_enabled=not memory_off,
-                          memory_before=[] if memory_off else public_memories(lab.memories('researcher')))
+                          memory_before=[] if memory_off else public_memories(lab.memories(USER)))
         task = suite.get_user_task_by_id(case['task_id'])
         # No prior tool output, session conversation or poisoned source survives here.
         env = task.init_environment(suite.load_and_inject_default_environment({case['vector']: case['payload']} if injected else {}))
@@ -119,7 +119,7 @@ def run_session(suite, case, experiment, prompt, *, injected=False, write=False,
                     not isinstance(arguments['query'], str) or not 1 <= len(arguments['query']) <= 2000):
                     output, error = 'Invalid memory query', 'Invalid memory query'
                 else:
-                    raw_records = [] if memory_off else lab.search('researcher', arguments['query'])['results']
+                    raw_records = [] if memory_off else lab.search(USER, arguments['query'])['results']
                     records = public_memories(raw_records)
                     audit_records = [{k: r[k] for k in ('id', 'memory', 'score') if k in r} for r in raw_records]
                     retrieved.update({r['id']: r for r in records})
@@ -154,10 +154,10 @@ def run_session(suite, case, experiment, prompt, *, injected=False, write=False,
         if official:
             result['native_utility'] = bool(task.utility(answer, pre, env))
         if write:
-            before = public_memories(lab.memories('researcher'))
-            events = lab.add('researcher', [{'role': 'user', 'content': prompt}, {'role': 'assistant', 'content': answer}],
+            before = public_memories(lab.memories(USER))
+            events = lab.add(USER, [{'role': 'user', 'content': prompt}, {'role': 'assistant', 'content': answer}],
                              source='workspace_task_answer')
-            after = public_memories(lab.memories('researcher'))
+            after = public_memories(lab.memories(USER))
             if not {r['id'] for r in before} <= {r['id'] for r in after}:
                 raise RuntimeError('ADD-only session unexpectedly removed previous memory records')
             result.update(memory_before=before, memory_after=after, write_events=events,
@@ -168,7 +168,7 @@ def run_session(suite, case, experiment, prompt, *, injected=False, write=False,
     finally:
         if audit:
             try:
-                result['memory_after'] = [] if memory_off else public_memories(lab.memories('researcher'))
+                result['memory_after'] = [] if memory_off else public_memories(lab.memories(USER))
             except Exception as exc:
                 result.update(status='error', memory_audit_error=str(exc))
         result['retrieved'] = list(retrieved.values())

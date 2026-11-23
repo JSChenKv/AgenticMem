@@ -11,6 +11,8 @@ from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[1]
+# The single Mem0 user ID for every experiment session (seed, S0-S3, both Finals).
+USER = 'researcher'
 load_dotenv(ROOT / '.env')
 # Set these before importing Mem0: SDK setup otherwise writes to the home folder.
 os.environ['MEM0_TELEMETRY'] = 'false'
