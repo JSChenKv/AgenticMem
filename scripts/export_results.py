@@ -171,7 +171,7 @@ def main():
     lines = ['# Shared experiment results', '',
              'Current protocol: sustained_native_v6 (main v5 exposure design: automatic pre-task memory retrieval, Hawaii '
              'document + newer email attack, all-inbox S2/S3; plus scripted seed and design check, sustained and single-exposure '
-             'schedules, memory-only Finals after S1 and S3 answered by every answering model, repeats; top-5 retrieval). '
+             'schedules, memory-only Finals after S1 and S3 answered by every answering model, repeats; Mem0 SDK-default retrieval, top 20, threshold 0.1). '
              'Runs record their own protocol version; never pool across versions. '
              'Raw logs and databases remain local.', '',
              '| Run | Status |', '| --- | --- |']

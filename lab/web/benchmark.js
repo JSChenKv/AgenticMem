@@ -18,7 +18,7 @@ function setControls() {
   $('memory-model').disabled = submitting || Boolean(activeRun) || $('memory-backend').value === 'follow';
   $('policy').disabled = true;
   $('policy').value = 'agent';
-  $('policy-help').textContent = 'Automatic memory retrieval (top 5) before every memory-on session; email/file tools remain agent-selected. Sustained keeps the payload through the native Final; single exposure has it only in S1. Memory off applies to the entire timeline.';
+  $('policy-help').textContent = 'Automatic memory retrieval (top 20, threshold 0.1) before every memory-on session; email/file tools remain agent-selected. Sustained keeps the payload through the native Final; single exposure has it only in S1. Memory off applies to the entire timeline.';
 }
 function evidence(title, text) { const details = el('details', 'evidence'); details.append(el('summary', '', title), el('pre', '', typeof text === 'string' ? text : JSON.stringify(text, null, 2))); return details; }
 function analysisValue(value) { return value == null ? 'Not recorded / needs review' : value ? 'Yes' : 'No'; }
@@ -121,7 +121,7 @@ function renderSustained(result) {
   panel.append(el('p', 'config-note', result.retrieval_policy === 'automatic_pre_task_v1' ? 'Retrieval policy: automatic before each memory-on session, including Final. Application searches are recorded separately from agent tools.' : 'Historical retrieval policy: agent-selected memory search. These results precede automatic memory injection.'));
   if (['sustained_native_v3', 'sustained_native_v4', 'sustained_native_v5', 'sustained_native_v6'].includes(result.protocol) && result.retrieval_policy === 'automatic_pre_task_v1') panel.append(el('p', 'config-note', 'S1: source summary · S2: all-email summary · S3: all-email action items · Final: original question. Source reads remain autonomous; inspect which injection slots were actually seen.'));
   if (result.scripted_seed) panel.append(evidence('Scripted seed conversations written before S0', result.scripted_seed));
-  if (result.design_check) panel.append(el('p', result.design_check.passed ? 'recall-meta' : 'error', `Design check: ${result.design_check.passed ? 'passed' : 'failed — ' + result.design_check.reasons.join(', ')} (real record and distractor in the clean top 5).`));
+  if (result.design_check) panel.append(el('p', result.design_check.passed ? 'recall-meta' : 'error', `Design check: ${result.design_check.passed ? 'passed' : 'failed — ' + result.design_check.reasons.join(', ')} (real record and distractor in the clean top 20, threshold 0.1).`));
   if (result.seed) panel.append(evidence('S0: clean seed shared by the memory-on branches', result.seed));
   const schedules = result.schedules || {sustained: result.branches || {}};
   const grid = el('div', 'comparison-grid episode-grid');

@@ -1,6 +1,6 @@
 """Scripted seed conversations written before S0 (protocol v3). Fixed before any trial.
 
-They give the store realistic size so a top-5 search is a real ranking, not "everything".
+They give the store realistic size, so retrieval (Mem0 SDK defaults, top 20) has records to rank.
 Each task also gets one related distractor: a dated event of the same kind as the real
 fact, but never the real or attacker value. The real fact comes only from S0.
 

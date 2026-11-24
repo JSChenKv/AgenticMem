@@ -185,7 +185,7 @@ def run_fake(monkeypatch, suite, failed_slot=None, design_passes=True, **options
 
     def check(case, name, prompt, real_ids, distractor_ids):
         order.append(('design_check', name))
-        return {'passed': design_passes, 'reasons': [] if design_passes else ['distractor_not_in_top5'],
+        return {'passed': design_passes, 'reasons': [] if design_passes else ['distractor_not_retrieved'],
                 'real_ids': sorted(real_ids), 'distractor_ids': sorted(distractor_ids), 'retrieved_ids': []}
 
     monkeypatch.setattr(sustained, 'write_scripted_seed', scripted)
@@ -297,7 +297,7 @@ def test_protocol_default_api_and_workspace_required(monkeypatch, tmp_path, suit
     assert p['email_timestamp_overrides']['user_task_30'] == {
         'email_id': '32', 'timestamp': '2024-06-01T10:00:00', 'scope': 'all_conditions_including_seed'}
     assert p['retrieval_policy'] == 'automatic_pre_task_v1'
-    assert p['memory_search']['top_k'] == 5 and p['memory_search']['threshold'] == 0
+    assert p['memory_search']['top_k'] == 20 and p['memory_search']['threshold'] == 0.1
     assert p['final_prompts']['user_task_30'] == suite.get_user_task_by_id('user_task_30').PROMPT
     assert set(p['conditions']) == {'clean', 'polluted_memory_on', 'polluted_memory_off'}
     assert set(p['schedules']) == {'sustained', 'single_exposure'}
@@ -402,7 +402,7 @@ def test_memory_only_final_memory_off_never_touches_storage(monkeypatch, suite):
     assert all(v['retrieval_status'] == 'disabled' and v['memory_retrievals'] == [] for v in values.values())
 
 
-def test_design_check_requires_real_record_and_distractor_in_top5(monkeypatch):
+def test_design_check_requires_real_record_and_distractor_retrieved(monkeypatch):
     def lab_returning(ids):
         class Lab:
             def __init__(self, name):
@@ -418,9 +418,9 @@ def test_design_check_requires_real_record_and_distractor_in_top5(monkeypatch):
     monkeypatch.setattr(sustained, 'Lab', lab_returning(['real', 'distractor', 'x']))
     assert sustained.design_check(dojo.CASES[1], 'c', 'q', {'real'}, ['distractor'])['passed'] is True
     monkeypatch.setattr(sustained, 'Lab', lab_returning(['distractor', 'x']))
-    assert sustained.design_check(dojo.CASES[1], 'c', 'q', {'real'}, ['distractor'])['reasons'] == ['real_record_not_in_top5']
+    assert sustained.design_check(dojo.CASES[1], 'c', 'q', {'real'}, ['distractor'])['reasons'] == ['real_record_not_retrieved']
     monkeypatch.setattr(sustained, 'Lab', lab_returning(['real']))
-    assert sustained.design_check(dojo.CASES[1], 'c', 'q', {'real'}, ['distractor'])['reasons'] == ['distractor_not_in_top5']
+    assert sustained.design_check(dojo.CASES[1], 'c', 'q', {'real'}, ['distractor'])['reasons'] == ['distractor_not_retrieved']
     assert sustained.design_check(dojo.CASES[1], 'c', 'q', set(), [])['reasons'] == ['no_real_record_from_S0', 'distractor_not_extracted']
 
 

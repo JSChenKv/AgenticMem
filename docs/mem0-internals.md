@@ -25,7 +25,7 @@ Read from the mem0ai 2.2.1 wheel source in November 2026. Re-check against the i
 
 - Ranking is vector similarity only. There is no recency term, so a newer attacker record does not outrank an older real record merely by being newer.
 - Scope is `user_id` only. Every session of a branch uses `researcher`.
-- `Lab.search` uses `top_k=5`, `threshold=0`, `explain=True`. Task agents see only the public `id` and `memory` fields.
+- `Lab.search` uses the SDK defaults `top_k=20`, `threshold=0.1`, `explain=False` (`SEARCH` in `lab/core.py`, passed explicitly). `score` is still returned with `explain=False` (main v5 runs record it). Task agents see only the public `id` and `memory` fields.
 
 ## Our configuration (lab/core.py)
 

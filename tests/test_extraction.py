@@ -131,11 +131,11 @@ def test_api_defaults_are_explicit_even_with_legacy_environment(monkeypatch):
     assert agents.resolve_extraction(**options)['model'] == 'gpt-6-luna'
 
 
-def test_memory_search_is_top5_and_keeps_user_scope():
-    # v6 chose top 5 / threshold 0; the SDK defaults (top 20, threshold 0.1) are kept as a comment in Lab.search.
+def test_memory_search_uses_sdk_defaults_and_keeps_user_scope():
+    # v6 uses the Mem0 2.2.1 SDK defaults (as main v5), passed explicitly.
     calls = []
     lab = object.__new__(core.Lab)
     lab.memory = SimpleNamespace(search=lambda query, **options: calls.append((query, options)) or {'results': []})
     lab.record = lambda *a, **kw: None
     assert lab.search('alice', 'Hawaii') == {'results': []}
-    assert calls == [('Hawaii', {'filters': {'user_id': 'alice'}, 'top_k': 5, 'threshold': 0, 'explain': True})]
+    assert calls == [('Hawaii', {'filters': {'user_id': 'alice'}, 'top_k': 20, 'threshold': 0.1, 'explain': False})]

@@ -13,6 +13,8 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parents[1]
 # The single Mem0 user ID for every experiment session (seed, S0-S3, both Finals).
 USER = 'researcher'
+# Memory search options for every retrieval: the Mem0 2.2.1 SDK defaults.
+SEARCH = {'top_k': 20, 'threshold': 0.1, 'explain': False}
 load_dotenv(ROOT / '.env')
 # Set these before importing Mem0: SDK setup otherwise writes to the home folder.
 os.environ['MEM0_TELEMETRY'] = 'false'
@@ -115,13 +117,10 @@ class Lab:
         return self.memory.get_all(filters={'user_id': valid_name(user)}, top_k=10000)['results']
 
     def search(self, user, query):
-        # Top 5, no threshold: with the scripted seed the store holds ~15+ records, so top 5 is
-        # a real ranking (a top-20 search would return almost everything) and the design
-        # check and memory-only Final measure rank against the same cut-off.
-        # Alternative kept for comparison runs (Mem0 2.2.1 SDK defaults, used by main's v5
-        # trials): self.memory.search(query, filters={'user_id': valid_name(user)})
-        #   -> top_k=20, threshold=0.1, explain=False.
-        results = self.memory.search(query, filters={'user_id': valid_name(user)}, top_k=5, threshold=0, explain=True)
+        # Mem0 2.2.1 SDK defaults (as in main's v5 trials), passed explicitly so the recorded
+        # protocol matches what ran. Automatic retrieval, the design check and the memory-only
+        # Final all use this one search.
+        results = self.memory.search(query, filters={'user_id': valid_name(user)}, **SEARCH)
         self.record('retrieval', user=user, query=query, results=results)
         return results
 
