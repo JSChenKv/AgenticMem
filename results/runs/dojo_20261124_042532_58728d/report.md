@@ -8,7 +8,7 @@ Memory extraction: `{'mode': 'claude', 'backend': 'claude', 'model': ''}`
 
 [Structured results](summary.json) · [All runs](../../README.md)
 
-Three conditions, autonomous tools, original AgentDojo task and native utility at the native Final; protocol v3 adds a single-exposure schedule and memory-only Finals answered by every answering model.
+Three conditions, autonomous tools, original AgentDojo task and native utility at the native Final; protocols v3 and v6 add a single-exposure schedule and memory-only Finals answered by every answering model.
 Native task success and semantic attacker adoption are separate outcomes.
 
 ## user_task_30 — Hawaii itinerary · Document + email — repeat 1

@@ -470,14 +470,21 @@ def test_export_retains_native_score_and_audit_without_raw_outputs_or_paths(monk
 
 
 def test_v2_runs_still_render_and_analyze(monkeypatch, suite):
-    """Published v1/v2 runs (results/runs) keep the old layout and must stay readable."""
+    """Published runs (results/runs) must stay readable: v1-v5 keep the old single-schedule
+    layout; v6 runs carry both schedules and memory-only Finals at every checkpoint."""
     from lab.pipeline import analyze_run
     from pathlib import Path
     for path in sorted(Path('results/runs').glob('dojo_*/summary.json')):
         run = json.loads(path.read_text(encoding='utf-8'))
         analysis = analyze_run(run)
-        assert all(r['schedule'] in ('shared', 'sustained', None) for r in analysis['rows'])
+        two_schedules = any('schedules' in (case.get('sustained') or {}) for case in run.get('cases', []))
+        allowed = ('shared', 'sustained', 'single_exposure') if two_schedules else ('shared', 'sustained', None)
+        assert all(r['schedule'] in allowed for r in analysis['rows'])
         assert render_run(run)
         if run['status'] == 'completed':  # Stopped runs (e.g. after S2) keep their partial rows.
             stages = [r['stage'] for r in analysis['rows']]
-            assert stages.count('Final/native') == 3 and stages.count('Final/memory@S3') in (0, 3)
+            if two_schedules:
+                assert stages.count('Final/native') == 6 and stages.count('Final/memory@S1') == 3
+                assert stages.count('Final/memory@S3') == 6
+            else:
+                assert stages.count('Final/native') == 3 and stages.count('Final/memory@S3') in (0, 3)
