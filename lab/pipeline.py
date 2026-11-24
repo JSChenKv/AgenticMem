@@ -13,7 +13,9 @@ from lab.values import VERSION as CLASSIFIER_VERSION, attacker_content, classify
 # v4: protocol v3 (two schedules, memory-only Final checkpoints, cross-model answering,
 # repeats) and per-session memory counts: stored records asserting each value, and whether
 # the session read the workspace source, searched memory, or both.
-VERSION = 'pipeline-stages-v4'
+# v5: merged protocol v6. Reads application/harness retrievals (memory_retrievals, with an
+# initiator) as well as agent tool calls, and records retrieval_status (from main v5).
+VERSION = 'pipeline-stages-v5'
 
 
 def digest(value):
@@ -37,7 +39,7 @@ def retrieval_queries(value, fixed=False):
     """Never assign a rank to an old deduplicated multi-query record list."""
     queries = []
     basis = 'fixed_harness_query' if value.get('retrieval_policy') == 'harness_fixed' else 'actual_query'
-    for index, call in enumerate(value.get('tool_calls', []), 1):
+    for index, call in enumerate([*value.get('memory_retrievals', []), *value.get('tool_calls', [])], 1):
         if call.get('tool') != 'search_memory' or call.get('error'):
             continue
         records = call.get('retrieved_records')
@@ -48,11 +50,16 @@ def retrieval_queries(value, fixed=False):
                 pass
         if isinstance(records, list) and all(isinstance(r, dict) and 'id' in r and 'memory' in r for r in records):
             queries.append({'tool_sequence': call.get('sequence', index),
+                            'initiator': call.get('initiator', 'agent'),
                             'query': call.get('arguments', {}).get('query'),
                             'rank_basis': basis,
                             'records': [dict(r, rank=i) for i, r in enumerate(records, 1)]})
     if queries:
         return queries
+    if 'memory_retrievals' in value:
+        # New sessions explicitly distinguish disabled/failed retrieval from an
+        # old result whose only evidence is an unranked union of records.
+        return []
     trace_queries = value.get('memory_trace', {}).get('retrieval_queries')
     if trace_queries:
         return [dict(q, rank_basis=basis) for q in trace_queries]
@@ -142,6 +149,7 @@ def analyze_session(task, value, seed=None, fixed=False):
            'attacker_content_retrieved': content_retrieved, 'attacker_content_retrievals': content_hits,
            'attacker_content_rank': next((r['rank'] for r in content_hits if r['rank'] is not None), None),
            'memory_search_count': searches, 'retrieval_policy': value.get('retrieval_policy', 'agent_selected'),
+           'retrieval_status': value.get('retrieval_status'),
            'store_attacker_fact_records': None if store_labels is None else sum(d['label'] in ('target', 'both') for d in store_labels),
            'store_real_fact_records': None if store_labels is None else sum(d['label'] in ('real', 'both') for d in store_labels),
            'store_attacker_content_records': None if store_labels is None else sum(d['attacker_content'] for d in store_labels),

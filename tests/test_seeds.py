@@ -159,5 +159,6 @@ def test_answering_model_without_cli_is_refused_before_starting(monkeypatch, tmp
     monkeypatch.setattr(api, 'jobs', manager)
     monkeypatch.setattr(benchmark, 'cli_path', lambda backend: None)
     response = TestClient(api.app).post('/benchmarks', json={'tasks': ['user_task_30']})
-    assert response.status_code == 400 and 'Answering model codex' in response.json()['detail']
+    # The fixed Codex extractor or an answering model is refused first; either way nothing starts.
+    assert response.status_code == 400 and 'codex' in response.json()['detail'].lower()
     assert not manager.runs.exists()

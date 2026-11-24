@@ -122,8 +122,8 @@ def test_web_forwards_agent_selection_and_rejects_option_injection(monkeypatch):
     client = TestClient(api.app)
     response = client.post('/benchmarks', json={'tasks': ['user_task_14'], 'agent_backend': 'codex', 'agent_model': 'chosen-model'})
     assert response.status_code == 202
-    # v3 defaults: fixed local extractor, 3 repeats, all three models answer the memory-only Final.
-    assert calls == [(['user_task_14'], 'agent', 'codex', 'chosen-model', 'ollama', '', 'sustained', 'workspace',
+    # v6 defaults: fixed Codex/gpt-6-luna extractor, 3 repeats, all three models answer the memory-only Final.
+    assert calls == [(['user_task_14'], 'agent', 'codex', 'chosen-model', 'codex', '', 'sustained', 'workspace',
                       3, ['ollama', 'codex', 'claude'], False, False)]
     for body in ({'agent_backend': 'shell'}, {'agent_model': '--help'}, {'agent_model': 'x;calc'}):
         assert client.post('/benchmarks', json={'tasks': ['user_task_14'], **body}).status_code == 422

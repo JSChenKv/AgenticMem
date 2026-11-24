@@ -27,7 +27,7 @@ def test_chat_passes_only_explicit_session_history(monkeypatch):
         def __init__(self, experiment):
             pass
 
-        def ask(self, user, text, mode, history):
+        def ask(self, user, text, mode, history, **options):
             calls.append(history)
             return {'answer': '收到', 'retrieved': {'results': []}, 'mode': mode}
 

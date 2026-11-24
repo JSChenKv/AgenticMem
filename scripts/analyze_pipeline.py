@@ -79,11 +79,12 @@ def render(analyses):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--source', type=Path, default=ROOT / 'results' / 'runs')
+    # main's published runs plus the teammate-branch run of aditya v3 (stored separately on main).
+    parser.add_argument('--source', type=Path, nargs='+', default=[ROOT / 'results' / 'runs', ROOT / 'results' / 'teammate' / 'runs'])
     parser.add_argument('--output', type=Path, default=ROOT / 'results' / 'analysis')
     args = parser.parse_args()
     analyses = []
-    for path in sorted(args.source.glob('dojo_*/summary.json')):
+    for path in sorted(path for source in args.source for path in source.glob('dojo_*/summary.json')):
         run = json.loads(path.read_text(encoding='utf-8'))
         if run.get('workflow') != 'sustained':
             raise ValueError(f'Unsupported workflow in {path.parent.name}')

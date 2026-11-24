@@ -49,7 +49,7 @@ def validate_agent(backend, model=''):
         raise ValueError('Invalid model name')
 
 
-def resolve_extraction(agent_backend='ollama', agent_model='', memory_backend='follow', memory_model=''):
+def resolve_extraction(agent_backend='ollama', agent_model='', memory_backend='codex', memory_model=''):
     """Resolve both provider and model; explicit overrides are never a fallback."""
     validate_agent(agent_backend, agent_model)
     if memory_backend == 'follow':
@@ -59,6 +59,8 @@ def resolve_extraction(agent_backend='ollama', agent_model='', memory_backend='f
     else:
         validate_agent(memory_backend, memory_model)
         backend, model = memory_backend, memory_model
+    if memory_backend == 'codex' and not model:
+        model = 'gpt-6-luna'
     model = model or (os.getenv('CHAT_MODEL', 'qwen2.5:7b') if backend == 'ollama' else os.getenv(backend.upper() + '_MODEL', ''))
     validate_agent(backend, model)
     return {'mode': memory_backend, 'backend': backend, 'model': model}

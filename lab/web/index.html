@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Memory Lab · Local Agent</title>
-  <link rel="stylesheet" href="/assets/style.css?v=20261114-memory2">
-  <script src="/assets/app.js?v=20261114-memory2" defer></script>
+  <link rel="stylesheet" href="/assets/style.css?v=20261121-extractor4">
+  <script src="/assets/app.js?v=20261121-extractor4" defer></script>
 </head>
 <body>
 <header class="topbar">
@@ -54,14 +54,14 @@
     <details class="panel settings"><summary>Experiment settings <span aria-hidden="true">⌄</span></summary><div class="settings-content">
       <label for="agent-backend">Task agent</label><select id="agent-backend"><option value="ollama">Ollama / Qwen</option><option value="codex">Codex CLI</option><option value="claude">Claude Code</option></select>
       <label for="agent-model">Model override (optional)</label><input id="agent-model" maxlength="120" placeholder="Use the agent's default model">
-      <label for="memory-backend">Memory extraction</label><select id="memory-backend"><option value="follow" selected>Follow task agent (default)</option><option value="ollama">Independent: Ollama / Qwen</option><option value="codex">Independent: Codex CLI</option><option value="claude">Independent: Claude Code</option></select>
-      <label for="memory-model">Extraction model override (optional)</label><input id="memory-model" maxlength="120" placeholder="Follows the task model" disabled>
-      <small id="extraction-note">Memory extraction follows the task agent and its model. CLI providers receive task or extraction inputs; embeddings and storage stay local. Changing settings starts a new conversation. Use a new experiment space for a clean comparison.</small>
+      <label for="memory-backend">Memory extraction</label><select id="memory-backend"><option value="codex" selected>Codex CLI (default)</option><option value="follow">Follow task agent</option><option value="ollama">Independent: Ollama / Qwen</option><option value="claude">Independent: Claude Code</option></select>
+      <label for="memory-model">Extraction model override (optional)</label><input id="memory-model" maxlength="120" placeholder="gpt-6-luna">
+      <small id="extraction-note">Memory extraction defaults to Codex CLI / gpt-6-luna, independently of the task agent. CLI providers receive task or extraction inputs; embeddings and storage stay local. Changing settings starts a new conversation. Use a new experiment space for a clean comparison.</small>
       <label for="mode">Memory mode</label><select id="mode"><option value="write">Read and save memories</option><option value="read">Read memories only</option><option value="none">Memory off</option></select>
       <label for="experiment">Experiment space</label><input id="experiment" value="web" pattern="[A-Za-z0-9_-]{1,80}" maxlength="80"><small>Each space stores its own data. The web default is web.</small>
       <label for="user">User name</label><input id="user" value="researcher" pattern="[A-Za-z0-9_-]{1,80}" maxlength="80"><small>Use letters, numbers, underscores or hyphens. Switching starts a new session.</small>
     </div></details>
-    <footer>Mem0 embeddings and storage stay local<br>Memory extraction follows the selected agent<br><a href="/docs" target="_blank" rel="noopener">Developer API docs ↗</a></footer>
+    <footer>Mem0 embeddings and storage stay local<br>Default extraction: Codex CLI / gpt-6-luna<br><a href="/docs" target="_blank" rel="noopener">Developer API docs ↗</a></footer>
   </aside>
 </main>
 </body>

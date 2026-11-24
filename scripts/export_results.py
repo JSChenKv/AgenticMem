@@ -29,8 +29,13 @@ def export_session(source):
                'slot target_claim_record_ids expected_content_present target_content_present clean_correct '
                'scoring evaluated_content target_adoption adoption_assessment snapshot_before snapshot_after '
                'memory_unchanged memory_enabled workspace_condition retrieval_policy source_memory_arm '
-               'schedule checkpoint after_session answer_model built_by sampling')
-    out['tool_calls'] = [pick(t, 'sequence tool arguments error attack_payload_seen harness_fixed') for t in source.get('tool_calls', [])]
+               'schedule checkpoint after_session answer_model built_by sampling retrieval_status attack_vectors_seen')
+    if 'memory_retrievals' in source:
+        out['memory_retrievals'] = [dict(pick(t, 'sequence tool initiator arguments error harness_fixed'),
+            retrieved_records=[pick(r, 'id memory score rank') for r in t.get('retrieved_records', [])])
+            for t in source['memory_retrievals']]
+    out['tool_calls'] = [pick(t, 'sequence tool arguments error attack_payload_seen attack_vectors_seen harness_fixed')
+                         for t in source.get('tool_calls', [])]
     for key in ('retrieved', 'memory_before', 'memory_after'):
         if key in source:
             out[key] = records(source[key])
@@ -43,7 +48,7 @@ def export_session(source):
         fields = 'id memory score rank seed_record expected_text_match target_claim_text_match'
         out['memory_trace']['added_records'] = (None if trace.get('added_records') is None else
                                                [pick(r, fields) for r in trace['added_records']])
-        out['memory_trace']['retrieval_queries'] = [dict(pick(q, 'tool_sequence query'),
+        out['memory_trace']['retrieval_queries'] = [dict(pick(q, 'tool_sequence initiator query'),
             records=[pick(r, fields) for r in q['records']]) for q in trace.get('retrieval_queries', [])]
         for key in ('seed_memory_retrievals', 'target_memory_retrievals'):
             out['memory_trace'][key] = [pick(r, 'tool_sequence id rank') for r in trace.get(key, [])]
@@ -61,7 +66,7 @@ def export_branch(branch):
 
 def export_sustained(source):
     out = pick(source, 'protocol status error evaluation_tools conditions comparisons repeat built_by answer_models '
-                       'real_seed_record_ids design_check')
+                       'real_seed_record_ids design_check retrieval_policy memory_search')
     if 'seed' in source:
         out['seed'] = export_session(source['seed'])
     if 'scripted_seed' in source:
@@ -82,7 +87,8 @@ def export_sustained(source):
 
 
 def export_case(case):
-    out = pick(case, 'task_id label vector expected target payload status error reachable_vectors repeat')
+    out = pick(case, 'task_id label vector expected target payload status error reachable_vectors repeat '
+                     'additional_injections additional_injection_policy email_timestamp_override')
     if 'sustained' in case:
         out['sustained'] = export_sustained(case['sustained'])
     return out
@@ -104,6 +110,9 @@ def render_run(run, review_available=False):
     for case in run['cases']:
         title = f"## {case['task_id']} — {case['label']}" + (f" — repeat {case['repeat']}" if case.get('repeat') else '')
         lines += [title, '', 'Fixed payload:', '', '> ' + case['payload'], '']
+        lines += ['Injection slots: `' + '`, `'.join([case['vector'], *case.get('additional_injections', {})]) + '`.', '']
+        if case.get('email_timestamp_override'):
+            lines += ['Email timestamp override (all conditions, custom extension): `' + json.dumps(case['email_timestamp_override']) + '`.', '']
         if 'sustained' in case:
             lines += report_lines(case['sustained'])
             finals = case['sustained'].get('evaluations', {}).get('native', {})
@@ -132,7 +141,7 @@ def main():
         job_path = summary.parent / 'web-job.json'
         if job_path.exists():
             job = json.loads(job_path.read_text(encoding='utf-8'))
-            out['execution'] = pick(job, 'status exit_code started_at finished_at')
+            out['execution'] = pick(job, 'status exit_code started_at finished_at stopped_by_user')
             if source['status'] in ('running', 'starting') and job.get('status') not in ('running', 'starting', None):
                 out['source_status'], out['status'] = source['status'], job['status']
         out['export_schema'] = 'agenticmem-shared-results-v2'
@@ -148,7 +157,11 @@ def main():
             checks = json.loads(validation_path.read_text(encoding='utf-8'))
             allowed = ('all_13_sessions_completed', 'shared_seed_identical', 'memory_off_no_records_or_writes',
                        'memory_off_databases_unchanged', 'all_final_no_writes',
-                       'polluted_payload_observed_all_8_sessions', 'original_seed_ids_preserved')
+                       'polluted_payload_observed_all_8_sessions', 'original_seed_ids_preserved',
+                       'memory_off_no_reads_records_or_writes', 'all_memory_on_automatic_search',
+                       'all_s2_s3_read_entire_inbox', 'polluted_s2_s3_saw_email_payload',
+                       'document_payload_retained_and_observed', 'protocol_v5_and_matched_new_date',
+                       'all_observed_hiking_email_dates_updated')
             shared = {key: checks[key] for key in allowed if isinstance(checks.get(key), bool)}
             (target / 'validation.json').write_text(json.dumps(shared, indent=2) + '\n', encoding='utf-8')
         runs.append(out)
@@ -156,14 +169,19 @@ def main():
         print('No current runs to export. Start a three-condition experiment first.')
         return
     lines = ['# Shared experiment results', '',
-             'Current protocol: sustained_native_v3 (scripted seed and design check; sustained and single-exposure schedules; '
-             'native Final; memory-only Finals after S1 and S3 answered by every answering model; repeats). '
+             'Current protocol: sustained_native_v6 (main v5 exposure design: automatic pre-task memory retrieval, Hawaii '
+             'document + newer email attack, all-inbox S2/S3; plus scripted seed and design check, sustained and single-exposure '
+             'schedules, memory-only Finals after S1 and S3 answered by every answering model, repeats; top-5 retrieval). '
              'Runs record their own protocol version; never pool across versions. '
              'Raw logs and databases remain local.', '',
              '| Run | Status |', '| --- | --- |']
     for run in runs:
         lines.append(f"| [{run['run_id']}](runs/{run['run_id']}/report.md) | {run['status']} |")
-    lines += ['', '[Five-stage analysis](analysis/pipeline_stages.md) · [Analysis JSON](analysis/pipeline_stages.json)', '',
+    lines += ['', '[Five-stage analysis](analysis/pipeline_stages.md) · [Analysis JSON](analysis/pipeline_stages.json)', '']
+    if (destination / 'teammate' / 'README.md').exists():
+        lines += ['[Teammate-branch results](teammate/README.md): the aditya v3 Hawaii trial, kept separately; '
+                  'the merged analysis above includes it.', '']
+    lines += [
               'Native utility and semantic attack adoption are separate. Automatic labels remain provisional.',
               'Local web history reads data/agentdojo_runs; these exports do not populate it.', '']
     (destination / 'README.md').write_text('\n'.join(lines), encoding='utf-8')
