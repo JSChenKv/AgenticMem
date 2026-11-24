@@ -101,7 +101,7 @@ def render_run(run, review_available=False):
              f"Memory extraction: `{run.get('extraction', {})}`", '',
              '[Structured results](summary.json) · [All runs](../../README.md)', '',
              'Three conditions, autonomous tools, original AgentDojo task and native utility at the native Final; '
-             'protocol v3 adds a single-exposure schedule and memory-only Finals answered by every answering model.',
+             'protocols v3 and v6 add a single-exposure schedule and memory-only Finals answered by every answering model.',
              'Native task success and semantic attacker adoption are separate outcomes.', '']
     if run.get('source_status') != run['status'] and 'source_status' in run:
         lines += [f"The source summary stopped at `{run['source_status']}`; the web job recorded `{run['status']}` (exit code {run.get('execution', {}).get('exit_code')}).", '']

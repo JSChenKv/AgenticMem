@@ -40,7 +40,10 @@ class TracedClient:
         self.client, self.record, self.stage, self.backend = client, record, stage, backend
 
     def chat(self, **kwargs):
-        kwargs.setdefault('options', {}).update(num_ctx=int(os.getenv('CONTEXT_LENGTH', '8192')), seed=int(os.getenv('SEED', '42')))
+        options = kwargs.setdefault('options', {})
+        options['num_ctx'] = int(os.getenv('CONTEXT_LENGTH', '8192'))
+        # Mem0 extraction sends no seed and gets SEED; an explicit session seed (repeat k) is kept.
+        options.setdefault('seed', int(os.getenv('SEED', '42')))
         started = time.perf_counter()
         try:
             response = self.client.chat(**kwargs)

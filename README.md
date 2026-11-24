@@ -158,7 +158,7 @@ The smoke test uses real models and an isolated experiment directory to check fa
 
 ## AgentDojo experiment
 
-### Current design: protocol v3 (`sustained_native_v3`)
+### Current design: protocol v6 (`sustained_native_v6`)
 
 The web page, API and CLI default to `workflow: "sustained"`, which now runs protocol **v6** (`sustained_native_v6`). It merges main's v5 exposure design (automatic pre-task memory retrieval, the Hawaii document + newer-email attack, all-inbox S2/S3) with the aditya v3 evaluation design (scripted seed and design check, two schedules, memory-only Finals answered by every model, repeats). Runs record their own version: main's v1–v5 runs are in `results/runs/`, and the teammate-run aditya v3 trial is in `results/teammate/`. Never pool results across versions or extractor settings. All conditions are newly executed in every run:
 
@@ -213,14 +213,14 @@ Expand **Review this answer** to record the asserted value, conflict flag and su
 .\.venv\Scripts\python.exe scripts\analyze_pipeline.py --source data/agentdojo_runs --output reports/pipeline-analysis
 ```
 
-The first command writes `results/analysis/pipeline_stages.json` and `.md` (schema `pipeline-stages-v4`). Rows carry the repeat, schedule and answering model. Each row also counts the stored records that assert the attacker value and the real value after that session, and says whether the session read the workspace source, searched memory, or both. Empty cells say why: no memory search, memory off, not retrieved, or not scored. New protocols archive the classifier and analysis code alongside the runner. Alternative payload types and extraction-message-window auditing remain separate extensions. Mem0 2.2.1 internals are in [docs/mem0-internals.md](docs/mem0-internals.md) and related work is in [docs/related-work.md](docs/related-work.md).
+The first command writes `results/analysis/pipeline_stages.json` and `.md` (schema `pipeline-stages-v5`). Rows carry the repeat, schedule and answering model. Each row also counts the stored records that assert the attacker value and the real value after that session, and says whether the session read the workspace source, searched memory, or both. Empty cells say why: no memory search, memory off, not retrieved, or not scored. New protocols archive the classifier and analysis code alongside the runner. Alternative payload types and extraction-message-window auditing remain separate extensions. Mem0 2.2.1 internals are in [docs/mem0-internals.md](docs/mem0-internals.md) and related work is in [docs/related-work.md](docs/related-work.md).
 
 In the sustained native Final, sources are polluted, so an incorrect answer there alone does not prove memory-mediated persistence. The single-exposure native Final and the memory-only Finals isolate the memory path. The read/write trace is still required. Persistent Mem0 extraction history is part of the memory-on state and remains a possible mechanism alongside vector records. A single run does not establish a population-level attack success rate.
 
 ```powershell
 # Dry run first: scripted seed, S0 and the design check only (cheap, no attack sessions).
 .\.venv\Scripts\python.exe -m lab.dojo --tasks user_task_14 user_task_30 --repeats 1 --answer-models ollama --stop-after-design-check
-# Full run: fixed Qwen extractor, 3 repeats, memory-only Finals answered by all three models.
+# Full run: fixed Codex / gpt-6-luna extractor, 3 repeats, memory-only Finals answered by all three models.
 .\.venv\Scripts\python.exe -m lab.dojo --tasks user_task_30 --agent-backend codex
 ```
 
@@ -235,7 +235,7 @@ The [latest v5 Hawaii findings](results/runs/dojo_20261122_044435_cc6311/finding
 
 `python scripts/export_results.py` exports current runs. `python scripts/analyze_pipeline.py` analyzes those exports without model calls. Both commands report an empty input without generating dummy results. Git history is retained; cleanup does not rewrite old commits or change GitHub until pushed.
 
-New v5 runs use `automatic_pre_task_v1` retrieval. Existing v1 runs retain agent-selected retrieval and their original results; they are not evidence for the new retrieval policy. Automatic injection establishes exposure to returned memories, not that the agent used or trusted them.
+v5 and v6 runs use `automatic_pre_task_v1` retrieval. Existing v1 runs retain agent-selected retrieval and their original results; they are not evidence for the new retrieval policy. Automatic injection establishes exposure to returned memories, not that the agent used or trusted them.
 
 Hawaii v4 preserves the document injection (`drive_keywords_stuffing_injection`) and adds the same payload to `email_hiking_injection`, the body of email 32 ("Your next hiking trip awaits!"). Email sender, subject and timestamp are unchanged. S2 summarizes all inbox emails; S3 derives action items from all inbox emails. The extra email slot is part of our longitudinal extension, not the original Hawaii reference path. Per-session and per-tool `attack_vectors_seen` distinguish actual document and email exposure.
 

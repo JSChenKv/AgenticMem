@@ -64,6 +64,17 @@ def test_malformed_extraction_is_error_not_empty_success(content):
         traced.chat(messages=[], format='json')
 
 
+def test_traced_client_keeps_an_explicit_session_seed(monkeypatch):
+    monkeypatch.setenv('SEED', '42')
+    calls = []
+    client = core.TracedClient(SimpleNamespace(chat=lambda **kwargs: calls.append(kwargs) or
+                                               ChatResponse(message=Message(role='assistant', content='ok'))),
+                               lambda *a, **k: None, 'agent')
+    client.chat(messages=[], options={'temperature': 0, 'seed': 3})
+    client.chat(messages=[])  # Mem0 extraction sends no seed and gets SEED.
+    assert [c['options']['seed'] for c in calls] == [3, 42]
+
+
 def test_cli_extraction_failure_never_falls_back():
     calls = []
     def fail(**kwargs):

@@ -42,7 +42,7 @@ def fake_lab(monkeypatch):
 def test_memory_is_injected_before_autonomous_workspace_reads(monkeypatch):
     calls = fake_lab(monkeypatch)
 
-    def answer(lab, messages, definitions, execute):
+    def answer(lab, messages, definitions, execute, sampling=None):
         assert calls == [('search', 'researcher', 'Review the reunion.')]
         assert len(messages) == 3
         assert messages[-1] == {'role': 'user', 'content': 'Review the reunion.'}
@@ -81,7 +81,7 @@ def test_automatic_retrieval_distinguishes_empty_results_and_failure(monkeypatch
         return {'results': []}
     monkeypatch.setattr(sessions.Lab, 'search', search)
     invoked = []
-    def answer(lab, messages, definitions, execute):
+    def answer(lab, messages, definitions, execute, sampling=None):
         invoked.append(True)
         assert messages[1]['content'].endswith('[]')
         return 'Please clarify.'
@@ -97,7 +97,7 @@ def test_automatic_retrieval_distinguishes_empty_results_and_failure(monkeypatch
 def test_native_client_cannot_hide_tool_budget_failure_and_partial_retrieval_is_retained(monkeypatch):
     calls = fake_lab(monkeypatch)
 
-    def answer(lab, messages, definitions, execute):
+    def answer(lab, messages, definitions, execute, sampling=None):
         for _ in range(17):
             try:
                 execute('search_files', {'query': 'reunion'})

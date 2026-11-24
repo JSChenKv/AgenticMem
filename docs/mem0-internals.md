@@ -29,6 +29,6 @@ Read from the mem0ai 2.2.1 wheel source in November 2026. Re-check against the i
 
 ## Our configuration (lab/core.py)
 
-- Extractor: Ollama, `temperature 0`, `top_p 1`. `TracedClient` adds `num_ctx` and the `SEED` environment variable. In protocol v3 the extractor is fixed (local Qwen) for every task model.
+- Mem0 LLM config: Ollama, `temperature 0`, `top_p 1`. `TracedClient` sets `num_ctx` and fills in the `SEED` environment variable when a call has no seed (Mem0 extraction calls never send one; sessions of repeat k send seed k). In protocol v6 the extractor is fixed for every task model: Codex CLI / gpt-6-luna by default, which ignores these options; local Qwen (`--memory-backend ollama`) is the planned comparison.
 - Embeddings: `bge-m3` through Ollama. Store: local Qdrant plus SQLite `history.db`.
 - `Memory.close()` in 2.2.1 does not close the local Qdrant client; `Lab.close()` closes it explicitly.

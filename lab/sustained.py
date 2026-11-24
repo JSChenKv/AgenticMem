@@ -39,7 +39,7 @@ import uuid
 from lab.agents import CliClient, public_memories
 from lab.core import SEARCH as CORE_SEARCH, USER, Lab, TracedClient
 from lab.seeds import conversations, write_scripted_seed
-from lab.sessions import RETRIEVAL_POLICY, exposure_prompts, memory_context_message, run_session
+from lab.sessions import RETRIEVAL_POLICY, exposure_prompts, memory_context_message, run_session, sampling_options
 from lab.pipeline import analyze_session, VERSION as ANALYSIS_VERSION
 from lab.values import VERSION as CLASSIFIER_VERSION, classify_detail
 
@@ -182,13 +182,14 @@ def answer_client(lab, model):
     return CliClient(model['backend'], model.get('model', ''), lab.record), model.get('model', '')
 
 
-def memory_final(suite, case, name, memory_enabled, answer_models=None):
+def memory_final(suite, case, name, memory_enabled, answer_models=None, sampling=None):
     """Memory is the only carrier: no workspace tools, one fixed retrieval, no writes.
 
-    The retrieval runs once; every answering model gets identical messages. Returns
-    {model_key: session}.
+    The retrieval runs once; every answering model gets identical messages and options
+    (temperature 0, seed k for repeat k; only Ollama honours them). Returns {model_key: session}.
     """
     answer_models = answer_models or default_answer_models()
+    options = {**sampling_options(sampling), 'num_predict': 1024}
     task = suite.get_user_task_by_id(case['task_id'])
     prompt = task.PROMPT
     lab = Lab(name)
@@ -198,7 +199,7 @@ def memory_final(suite, case, name, memory_enabled, answer_models=None):
             'attack_source_seen': False, 'attack_tool_reads': 0, 'workspace_calls': 0,
             'memory_calls': 1 if memory_enabled else 0, 'tool_calls': [], 'retrieved': [],
             'exposure_observation': 'not_scheduled', 'scoring': 'memory_only_asserted_value',
-            'sampling': {'temperature': 0, 'cli_agents': 'CLI default sampling'}}
+            'sampling': {**sampling_options(sampling), 'cli_agents': 'CLI default sampling'}}
     results = {}
     try:
         lab.operation = 'memory_final_' + uuid.uuid4().hex
@@ -222,8 +223,7 @@ def memory_final(suite, case, name, memory_enabled, answer_models=None):
             result.update(session_id=uuid.uuid4().hex, answer_model=model_key(model))
             try:
                 client, name_for_client = answer_client(lab, model)
-                answer = client.chat(model=name_for_client, messages=messages,
-                                     options={'temperature': 0, 'num_predict': 1024}).message.content
+                answer = client.chat(model=name_for_client, messages=messages, options=dict(options)).message.content
                 if not answer or not answer.strip():
                     raise ValueError('Empty memory-only Final answer')
                 result['answer'] = answer
@@ -452,7 +452,7 @@ def run_case(suite, case, seed_name, clone, hashes, evaluation_tools='workspace'
             before = clone(frozen['experiment'], name)
             if before != frozen['snapshot_hashes']:
                 raise RuntimeError('Memory-only Final snapshot differs from its checkpoint')
-            answers = memory_final(suite, case, name, config['memory_enabled'], answer_models)
+            answers = memory_final(suite, case, name, config['memory_enabled'], answer_models, later_sampling)
             after = hashes(name)
             for key, value in answers.items():
                 value['seed_records_for_analysis'] = seed_records if config['memory_enabled'] else []
@@ -526,7 +526,10 @@ def report_lines(result):
              + (f" Repeat {result['repeat']}." if result.get('repeat') else '') + ' ' + retrieval, '']
     if result.get('design_check'):
         check = result['design_check']
-        lines += [f"Design check (clean seed, {DEPTH} for the task question): **{'passed' if check['passed'] else 'failed'}**"
+        # The depth this run recorded; older runs (top 5) predate the SDK-default search.
+        depth = (f"top {check['top_k']}" + (f", threshold {check['threshold']}" if 'threshold' in check else '')
+                 if 'top_k' in check else 'retrieval')
+        lines += [f"Design check (clean seed, {depth} for the task question): **{'passed' if check['passed'] else 'failed'}**"
                   + (f" ({', '.join(check['reasons'])})" if check['reasons'] else '') + '.', '']
     lines += ['Fresh sessions. Clean and polluted-memory-on share the clean seed; memory-off starts empty and never reads '
               'or writes memories. `sustained` keeps the payload through the native Final; `single_exposure` has it only in S1. '

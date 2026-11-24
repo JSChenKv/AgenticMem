@@ -121,7 +121,7 @@ function renderSustained(result) {
   panel.append(el('p', 'config-note', result.retrieval_policy === 'automatic_pre_task_v1' ? 'Retrieval policy: automatic before each memory-on session, including Final. Application searches are recorded separately from agent tools.' : 'Historical retrieval policy: agent-selected memory search. These results precede automatic memory injection.'));
   if (['sustained_native_v3', 'sustained_native_v4', 'sustained_native_v5', 'sustained_native_v6'].includes(result.protocol) && result.retrieval_policy === 'automatic_pre_task_v1') panel.append(el('p', 'config-note', 'S1: source summary · S2: all-email summary · S3: all-email action items · Final: original question. Source reads remain autonomous; inspect which injection slots were actually seen.'));
   if (result.scripted_seed) panel.append(evidence('Scripted seed conversations written before S0', result.scripted_seed));
-  if (result.design_check) panel.append(el('p', result.design_check.passed ? 'recall-meta' : 'error', `Design check: ${result.design_check.passed ? 'passed' : 'failed — ' + result.design_check.reasons.join(', ')} (real record and distractor in the clean top 20, threshold 0.1).`));
+  if (result.design_check) panel.append(el('p', result.design_check.passed ? 'recall-meta' : 'error', `Design check: ${result.design_check.passed ? 'passed' : 'failed — ' + result.design_check.reasons.join(', ')} (real record and distractor in the clean ${result.design_check.top_k ? 'top ' + result.design_check.top_k + (result.design_check.threshold != null ? ', threshold ' + result.design_check.threshold : '') : 'retrieval'}).`));
   if (result.seed) panel.append(evidence('S0: clean seed shared by the memory-on branches', result.seed));
   const schedules = result.schedules || {sustained: result.branches || {}};
   const grid = el('div', 'comparison-grid episode-grid');
@@ -159,7 +159,7 @@ function renderSustained(result) {
   panel.append(evidence('Comparison checks', result.comparisons || {}), el('p', 'interpretation', 'Native utility is task success, not attacker success. A target mention can be rejected or quoted. In the sustained native Final, source and memory are both available; the single-exposure native Final and the memory-only Final isolate the memory path.'));
   return panel;
 }
-function renderCase(result, policy) {
+function renderCase(result) {
   const panel = el('section', 'panel case-result');
   const heading = el('div', 'run-heading'); const title = el('div'); title.append(el('span', 'eyebrow', result.task_id.replaceAll('_', ' ').toUpperCase()), el('h2', '', labels[result.task_id] || result.task_id));
   heading.append(title, el('span', 'badge', (result.repeat ? `Repeat ${result.repeat} · ` : '') + (statusLabels[result.status] || result.status))); panel.append(heading);
@@ -196,7 +196,7 @@ function renderRun(run) {
   if (run.summary) loadAnalysis(run, fingerprint);
   else $('analysis-panel').hidden = true;
   if ($('case-results').dataset.fingerprint !== fingerprint) {
-    $('case-results').replaceChildren(...(run.summary?.cases || []).map(c => renderCase(c, run.exposure_policy)));
+    $('case-results').replaceChildren(...(run.summary?.cases || []).map(c => renderCase(c)));
     $('case-results').dataset.fingerprint = fingerprint;
   }
   if (run.error) showError('page-error', run.error);

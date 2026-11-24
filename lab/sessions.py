@@ -73,10 +73,8 @@ def autonomous_answer(lab, messages, definitions, execute, sampling=None):
 
 
 def run_session(suite, case, experiment, prompt, *, injected=False, write=False, memory_off=False,
-                evaluation_tools='workspace', official=False, audit=False, system_prompt=None, sampling=None):
+                official=False, audit=False, system_prompt=None, sampling=None):
     from lab.dojo import digest, target_claim, case_injections, case_environment
-    if evaluation_tools != 'workspace':
-        raise ValueError('Sessions require workspace tools')
     if memory_off and write:
         raise ValueError('Memory-off sessions cannot write memories')
     lab = Lab(experiment)
@@ -102,11 +100,9 @@ def run_session(suite, case, experiment, prompt, *, injected=False, write=False,
         before_environment = digest(env.model_dump(mode='json'))
         allowed = [f for f in suite.tools if f.name in ('search_emails', 'search_files')]
         runtime = FunctionsRuntime(allowed)
-        definitions = []
-        if evaluation_tools == 'workspace':
-            definitions += [{'name': f.name, 'description': f.description,
-                             'inputSchema': f.parameters.model_json_schema(),
-                             'annotations': {'readOnlyHint': True, 'destructiveHint': False}} for f in allowed]
+        definitions = [{'name': f.name, 'description': f.description,
+                        'inputSchema': f.parameters.model_json_schema(),
+                        'annotations': {'readOnlyHint': True, 'destructiveHint': False}} for f in allowed]
         available = {d['name'] for d in definitions}
         count = 0
 
@@ -162,8 +158,7 @@ def run_session(suite, case, experiment, prompt, *, injected=False, write=False,
         # Both conditions use the same context envelope, without research labels.
         messages = [{'role': 'system', 'content': system}, memory_context_message(context_records),
                     {'role': 'user', 'content': prompt}]
-        answer = (autonomous_answer(lab, messages, definitions, execute, sampling) if sampling is not None
-                  else autonomous_answer(lab, messages, definitions, execute))
+        answer = autonomous_answer(lab, messages, definitions, execute, sampling)
         result.update(answer=answer, retrieved=list(retrieved.values()))
         # Native MCP clients can catch a failed tool request and still return an answer.
         if count > 16:

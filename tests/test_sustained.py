@@ -54,7 +54,7 @@ def test_final_original_prompt_actual_polluted_source_and_native_score(monkeypat
     case = dojo.CASES[1]
     prompt = suite.get_user_task_by_id(case['task_id']).PROMPT
 
-    def answer(lab, messages, definitions, execute):
+    def answer(lab, messages, definitions, execute, sampling=None):
         assert messages[0] == {'role': 'system', 'content': sustained.SYSTEM}
         assert messages[-1] == {'role': 'user', 'content': prompt}
         assert messages[1]['content'].endswith('[]')
@@ -104,7 +104,7 @@ def test_native_scoring_is_not_replaced_by_custom_conflict_scoring(monkeypatch, 
 def test_five_stage_audit_keeps_per_query_rank_and_does_not_label_rejection_adoption(monkeypatch, suite):
     calls = fake_storage(monkeypatch)
 
-    def answer(lab, messages, definitions, execute):
+    def answer(lab, messages, definitions, execute, sampling=None):
         assert calls.count('search') == 1
         assert 'SECRET' not in str(messages) and 'rank' not in str(messages)
         assert 'Diamond Head' in messages[1]['content']
@@ -174,8 +174,8 @@ def run_fake(monkeypatch, suite, failed_slot=None, design_passes=True, **options
 
     memory_visits = []
 
-    def memory(suite, case, name, enabled, answer_models):
-        memory_visits.append({'name': name, 'enabled': enabled, 'state': copy.deepcopy(states[name]),
+    def memory(suite, case, name, enabled, answer_models, sampling=None):
+        memory_visits.append({'name': name, 'enabled': enabled, 'state': copy.deepcopy(states[name]), 'sampling': sampling,
                               'models': [sustained.model_key(m) for m in answer_models]})
         return {sustained.model_key(m): {'status': 'completed', 'answer': 'Diamond Head', 'tool_calls': [], 'retrieved': [],
                                          'memory_before': copy.deepcopy(states[name]), 'memory_after': copy.deepcopy(states[name]),
@@ -211,6 +211,7 @@ def test_v3_scripted_seed_before_s0_then_design_check_then_branches(monkeypatch,
     # Repeat k: S0 at temperature 0.7 with seed k; every later session at temperature 0 with seed k.
     assert run.visits[0][2]['sampling'] == {'temperature': 0.7, 'seed': 2}
     assert all(v[2]['sampling'] == {'temperature': 0, 'seed': 2} for v in run.visits[1:])
+    assert run.memory and all(m['sampling'] == {'temperature': 0, 'seed': 2} for m in run.memory)
 
 
 def test_v3_two_schedules_share_s1_and_single_exposure_has_clean_sources_after_s1(monkeypatch, suite):
@@ -355,12 +356,14 @@ def test_memory_only_final_fixed_retrieval_no_tools_no_writes_blinded_and_cross_
                                           'codex': 'June 13 is the Diamond Head hike.'})
     case = dojo.CASES[1]
     prompt = suite.get_user_task_by_id(case['task_id']).PROMPT
-    values = sustained.memory_final(suite, case, 'fake', True, ANSWERERS)
+    values = sustained.memory_final(suite, case, 'fake', True, ANSWERERS, {'temperature': 0, 'seed': 3})
     assert list(values) == ['ollama/qwen', 'codex']
     assert calls.count(('search', prompt)) == 1  # One harness-run retrieval, shared by every answering model.
     chats = [c for c in calls if isinstance(c, tuple) and c[0] != 'search']
     assert [key for key, _ in chats] == ['ollama/qwen', 'codex']
     assert chats[0][1]['messages'] == chats[1][1]['messages']  # Identical input across models.
+    assert all(c[1]['options'] == {'temperature': 0, 'seed': 3, 'num_predict': 1024} for c in chats)  # Seed k of repeat k.
+    assert values['ollama/qwen']['sampling']['seed'] == 3
     chat = chats[0][1]
     assert 'tools' not in chat  # No workspace (or any other) tools: memory is the only carrier.
     assert [m['role'] for m in chat['messages']] == ['system', 'user', 'user']
