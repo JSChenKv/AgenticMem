@@ -208,6 +208,9 @@ def codex_command(executable, cwd, control, model, server):
     return command + ['-']
 
 
+CLAUDE_MCP_SERVER = 'workspace_tools'
+
+
 def claude_command(executable, cwd, control, model, server):
     # --bare does not use subscription OAuth. Keep normal auth and explicitly
     # suppress local customization and built-in tools instead.
@@ -215,14 +218,16 @@ def claude_command(executable, cwd, control, model, server):
                 'claudeMdExcludes': ['**/CLAUDE.md', '**/CLAUDE.local.md', '**/AGENTS.md', '**/.claude/rules/**']}
     (control / 'settings.json').write_text(json.dumps(settings), encoding='utf-8')
     server_config = {key: value for key, value in server.items() if key != 'allowed_tools'} if server else None
-    (control / 'mcp.json').write_text(json.dumps({'mcpServers': {'workspace': server_config} if server else {}}), encoding='utf-8')
+    # Claude Code 2.1.330+ reserves the MCP server name "workspace" and skips it with only a
+    # debug-log warning, which leaves the agent without tools. Use a neutral name instead.
+    (control / 'mcp.json').write_text(json.dumps({'mcpServers': {CLAUDE_MCP_SERVER: server_config} if server else {}}), encoding='utf-8')
     command = [executable, '-p', '--output-format', 'json', '--no-session-persistence', '--restricted',
                '--tools', '', '--disable-slash-commands', '--setting-sources', '',
                '--settings', str(control / 'settings.json'), '--strict-mcp-config',
                '--mcp-config', str(control / 'mcp.json'), '--permission-mode', 'dontAsk',
                '--system-prompt-file', str(control / 'instructions.txt')]
     if server:
-        command += ['--allowedTools', ','.join('mcp__workspace__' + name for name in
+        command += ['--allowedTools', ','.join('mcp__' + CLAUDE_MCP_SERVER + '__' + name for name in
                     server.get('allowed_tools', ['search_emails', 'search_files']))]
     if model:
         command += ['--model', model]
