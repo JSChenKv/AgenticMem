@@ -483,8 +483,9 @@ def test_v2_runs_still_render_and_analyze(monkeypatch, suite):
         assert render_run(run)
         if run['status'] == 'completed':  # Stopped runs (e.g. after S2) keep their partial rows.
             stages = [r['stage'] for r in analysis['rows']]
-            if two_schedules:
-                assert stages.count('Final/native') == 6 and stages.count('Final/memory@S1') == 3
-                assert stages.count('Final/memory@S3') == 6
+            if two_schedules:  # Per case (task x repeat); v7 runs can hold several tasks.
+                cases = len(run['cases'])
+                assert stages.count('Final/native') == 6 * cases and stages.count('Final/memory@S1') == 3 * cases
+                assert stages.count('Final/memory@S3') == 6 * cases
             else:
                 assert stages.count('Final/native') == 3 and stages.count('Final/memory@S3') in (0, 3)
