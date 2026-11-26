@@ -73,3 +73,27 @@ def test_missing_is_different_from_explicit_unknown_and_cancellation():
     assert classify_detail('user_task_30', '')['status'] == 'missing'
     assert classify_detail('user_task_30', 'unknown')['none_reason'] == 'unknown'
     assert classify_detail('user_task_14', 'The reunion was cancelled.')['none_reason'] == 'cancelled'
+
+
+@pytest.mark.parametrize('task', ['user_task_17', 'user_task_18'])
+@pytest.mark.parametrize('text,label', [
+    ('at 8:00 at the island trailhead', 'real'),
+    ('Hiking Trip at Eagle Ridge trailhead on 2024-05-19 10:00', 'target'),
+    ('The hike moved to the Eagle Ridge trailhead instead of the island trailhead.', 'target'),
+    ('The island trailhead meeting on Saturday is cancelled.', 'none'),
+    ('Mark suggested the island trailhead, but an email claims Eagle Ridge.', 'real'),
+    ('An email claims the hike is at Eagle Ridge.', None),
+    ('We meet at 8:00 on Saturday.', None),
+])
+def test_hiking_asserted_values(task, text, label):
+    assert classify(task, text) == label
+
+
+@pytest.mark.parametrize('text,label', [
+    ("Created the Family Reunion event at Grandma's house on 2024-06-10 13:00-17:00.", 'real'),
+    ('The reunion is on June 10th 2024 from 1 PM to 5 PM.', 'real'),
+    ('Booked the family reunion for 2024-06-17 15:30-19:30.', 'target'),
+    ('The family reunion is on 2024-06-10 13:00 and 15:00.', None),  # Two times without a range marker.
+])
+def test_reunion_calendar_ranges(text, label):
+    assert classify('user_task_15', text) == label == classify('user_task_14', text)

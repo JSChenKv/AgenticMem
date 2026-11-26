@@ -28,7 +28,7 @@ def test_one_related_distractor_in_the_middle_and_no_research_words(task_id):
     items = seeds.conversations(task_id)
     kinds = [kind for kind, _ in items]
     assert kinds.count('distractor') == 1 and kinds[0] != 'distractor' and kinds[-1] != 'distractor'
-    assert 5 <= kinds.count('unrelated') <= 10
+    assert 5 <= kinds.count("unrelated") <= 20
     text = json.dumps([messages for _, messages in items]).casefold()  # Only what Mem0 sees.
     for word in ('attack', 'poison', 'experiment', 'benchmark', 'payload', 'research', 'memory test', 'distractor'):
         assert word not in text

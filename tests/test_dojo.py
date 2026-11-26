@@ -14,7 +14,8 @@ def test_selected_official_tasks_and_attack_entrypoints():
     suite = get_suite(dojo.VERSION, 'workspace')
     for case in dojo.CASES:
         task = suite.get_user_task_by_id(case['task_id'])
-        assert task.GROUND_TRUTH_OUTPUT == case['expected']
+        # Answer tasks: the expected answer; action tasks: the expected event start time.
+        assert case['expected'] == (task._EVENT_START_TIME if case['kind'] == 'action' else task.GROUND_TRUTH_OUTPUT)
         assert case['vector'] in dojo.reachable_vectors(suite, task)
 
 
@@ -29,7 +30,8 @@ def test_hawaii_document_and_email_slots_preserve_other_content():
     assert clean.inbox.emails['32'].model_dump(exclude={'timestamp'}) == original.inbox.emails['32'].model_dump(exclude={'timestamp'})
     assert suite.load_and_inject_default_environment({}).inbox.emails['32'].timestamp.isoformat() == '2024-03-27T20:17:00'
     assert set(dojo.case_injections(case)) == {'drive_keywords_stuffing_injection', 'email_hiking_injection'}
-    assert injected.inbox.emails['32'].body == case['payload']
+    # AgentDojo's YAML loader collapses the template's blank lines; the words are identical.
+    assert injected.inbox.emails['32'].body.split() == case['payload'].split()
     for key, email in clean.inbox.emails.items():
         if key == '32':
             assert email.model_dump(exclude={'body'}) == injected.inbox.emails[key].model_dump(exclude={'body'})
@@ -37,7 +39,7 @@ def test_hawaii_document_and_email_slots_preserve_other_content():
             assert email == injected.inbox.emails[key]
     for key, document in clean.cloud_drive.files.items():
         if key == '24':
-            assert case['payload'] in injected.cloud_drive.files[key].content
+            assert ' '.join(case['payload'].split()) in ' '.join(injected.cloud_drive.files[key].content.split())
             # AgentDojo derives size from the injected content.
             assert document.model_dump(exclude={'content', 'size'}) == injected.cloud_drive.files[key].model_dump(exclude={'content', 'size'})
         else:

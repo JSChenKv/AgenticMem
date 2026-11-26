@@ -13,8 +13,10 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parents[1]
 # The single Mem0 user ID for every experiment session (seed, S0-S3, both Finals).
 USER = 'researcher'
-# Memory search options for every retrieval: the Mem0 2.2.1 SDK defaults.
-SEARCH = {'top_k': 20, 'threshold': 0.1, 'explain': False}
+# Memory search options for every retrieval. Protocol v7: top 5 (v6 used the Mem0 2.2.1 SDK
+# default top_k=20), keeping the SDK-default threshold 0.1 and explain=False. A long-lived agent
+# retrieves a small part of a large store, so the real record competes for five slots.
+SEARCH = {'top_k': 5, 'threshold': 0.1, 'explain': False}
 load_dotenv(ROOT / '.env')
 # Set these before importing Mem0: SDK setup otherwise writes to the home folder.
 os.environ['MEM0_TELEMETRY'] = 'false'
@@ -120,12 +122,24 @@ class Lab:
         return self.memory.get_all(filters={'user_id': valid_name(user)}, top_k=10000)['results']
 
     def search(self, user, query):
-        # Mem0 2.2.1 SDK defaults (as in main's v5 trials), passed explicitly so the recorded
-        # protocol matches what ran. Automatic retrieval, the design check and the memory-only
-        # Final all use this one search.
+        # Passed explicitly so the recorded protocol matches what ran. Automatic retrieval, the
+        # design check and the memory-only Final all use this one search.
         results = self.memory.search(query, filters={'user_id': valid_name(user)}, **SEARCH)
         self.record('retrieval', user=user, query=query, results=results)
         return results
+
+    def delete(self, user, memory_id):
+        """The agent's delete_memory tool (protocol v7). Only the user's own records can be
+        deleted; an unknown ID is refused, never guessed. Returns (deleted, record)."""
+        before = self.memories(user)
+        record = next((r for r in before if r['id'] == memory_id), None)
+        if record is None:
+            self.record('memory_delete', user=user, memory_id=memory_id, deleted=False, reason='not_found')
+            return False, None
+        self.memory.delete(memory_id)
+        self.record('memory_delete', user=user, memory_id=memory_id, deleted=True, record=record,
+                    after=self.memories(user))
+        return True, record
 
     def configure_extraction(self, extraction):
         backend, model = extraction['backend'], extraction['model']

@@ -14,7 +14,9 @@ import portalocker
 from lab.core import ROOT
 from lab.agents import validate_agent, cli_path, cli_status, resolve_extraction
 
-TASKS = {'user_task_14': 'Family reunion · Email', 'user_task_30': 'Hawaii itinerary · Document + email'}
+TASKS = {'user_task_14': 'Family reunion · Email', 'user_task_15': 'Family reunion · Calendar event',
+         'user_task_17': 'Hiking trip · Email', 'user_task_18': 'Hiking trip · Calendar event',
+         'user_task_30': 'Hawaii itinerary · Document + email'}
 RUN_PATTERN = re.compile(r'^dojo_\d{8}_\d{6}_[a-f0-9]{6}$')
 
 
@@ -66,7 +68,7 @@ class BenchmarkJobs:
 
     def start(self, tasks, policy, agent_backend='ollama', agent_model='', memory_backend='codex', memory_model='',
               workflow='sustained', evaluation_tools='workspace', repeats=3, answer_models=('ollama', 'codex', 'claude'),
-              memory_final_after_s2=False, stop_after_design_check=False):
+              memory_final_after_s2=False, stop_after_design_check=False, attack='update'):
         if workflow != 'sustained' or policy != 'agent':
             raise ValueError('Only sustained exposure with agent-selected tools is supported')
         if evaluation_tools != 'workspace':
@@ -88,6 +90,8 @@ class BenchmarkJobs:
                 raise ValueError(f'Answering model {backend} CLI is unavailable or not logged in. Log in or deselect it.')
         if not isinstance(repeats, int) or not 1 <= repeats <= 10:
             raise ValueError('Use 1-10 repeats')
+        if attack not in ('update', 'delete'):
+            raise ValueError('Unknown attack')
         if not tasks or len(tasks) != len(set(tasks)) or any(t not in TASKS for t in tasks):
             raise ValueError('Select one or both supported tasks, without duplicates')
         try:
@@ -108,12 +112,12 @@ class BenchmarkJobs:
                    'agent': {'backend': agent_backend, 'model': agent_model or ('local default' if agent_backend == 'ollama' else 'CLI default')},
                    'extraction': extraction, 'workflow': workflow, 'evaluation_tools': evaluation_tools,
                    'repeats': repeats, 'answer_models': answer_models, 'memory_final_after_s2': memory_final_after_s2,
-                   'stop_after_design_check': stop_after_design_check}
+                   'stop_after_design_check': stop_after_design_check, 'attack': attack}
             self._write(directory / 'web-job.json', job)
             command = [sys.executable, '-m', 'lab.dojo', '--run-id', run_id, '--tasks', *tasks,
                        '--exposure-policy', policy, '--agent-backend', agent_backend, '--memory-backend', memory_backend,
                        '--workflow', workflow, '--evaluation-tools', evaluation_tools,
-                       '--repeats', str(repeats), '--answer-models', *answer_models]
+                       '--repeats', str(repeats), '--answer-models', *answer_models, '--attack', attack]
             if memory_final_after_s2:
                 command.append('--memory-final-after-s2')
             if stop_after_design_check:

@@ -158,7 +158,8 @@ def memories(experiment: str = 'default', user: str = 'researcher'):
 class BenchmarkRequest(AgentSettings):
     # One fixed extractor for all task models (Codex CLI / gpt-6-luna, inherited default);
     # 'ollama' is the planned local-Qwen comparison and 'follow' a control.
-    tasks: list[Literal['user_task_14', 'user_task_30']] = Field(min_length=1, max_length=2)
+    tasks: list[Literal['user_task_14', 'user_task_15', 'user_task_17', 'user_task_18', 'user_task_30']] = Field(min_length=1, max_length=5)
+    attack: Literal['update', 'delete'] = 'update'
     repeats: int = Field(default=3, ge=1, le=10)
     answer_models: list[Literal['ollama', 'codex', 'claude']] = Field(default_factory=lambda: ['ollama', 'codex', 'claude'],
                                                                      min_length=1, max_length=3)
@@ -186,7 +187,8 @@ def start_benchmark(query: BenchmarkRequest):
         try:
             return jobs.start(query.tasks, query.exposure_policy, query.agent_backend, query.agent_model,
                               query.memory_backend, query.memory_model, query.workflow, query.evaluation_tools,
-                              query.repeats, query.answer_models, query.memory_final_after_s2, query.stop_after_design_check)
+                              query.repeats, query.answer_models, query.memory_final_after_s2, query.stop_after_design_check,
+                              query.attack)
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:

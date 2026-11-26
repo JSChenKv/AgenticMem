@@ -5,7 +5,7 @@ Read from the mem0ai 2.2.1 wheel source in November 2026. Re-check against the i
 ## Write path (`Memory.add`)
 
 - `add()` calls `_add_to_vector_store` with the additive extraction prompt (`ADDITIVE_EXTRACTION_PROMPT`). It only ever emits `ADD` events.
-- `Memory.update()` and `Memory.delete()` exist but are never called by `add()`. Our task agents never call them either. An attacker therefore cannot overwrite or delete the real record through the automatic path. Tampering has to work at retrieval and answer time, which is why this study measures it there.
+- `Memory.update()` and `Memory.delete(memory_id)` exist but are never called by `add()`. An attacker therefore cannot overwrite or delete the real record through the automatic path. Task agents never call `update`. In protocol v7, memory-on S1–S3 agents can call `delete` through the `delete_memory` tool (`Lab.delete`), which is how the DELETE attack works. Tampering has to work at retrieval and answer time, which is why this study measures it there.
 - Extraction input:
   - the last 10 messages, through `get_last_messages`, from the message log described below;
   - the 10 existing memories most similar to the new messages;
@@ -25,7 +25,7 @@ Read from the mem0ai 2.2.1 wheel source in November 2026. Re-check against the i
 
 - Ranking is vector similarity only. There is no recency term, so a newer attacker record does not outrank an older real record merely by being newer.
 - Scope is `user_id` only. Every session of a branch uses `researcher`.
-- `Lab.search` uses the SDK defaults `top_k=20`, `threshold=0.1`, `explain=False` (`SEARCH` in `lab/core.py`, passed explicitly). `score` is still returned with `explain=False` (main v5 runs record it). Task agents see only the public `id` and `memory` fields.
+- `Lab.search` uses `top_k=5` (protocol v7; v6 used the SDK default 20), with the SDK defaults `threshold=0.1` and `explain=False` (`SEARCH` in `lab/core.py`, passed explicitly). `score` is still returned with `explain=False` (main v5 runs record it). Task agents see only the public `id` and `memory` fields.
 
 ## Our configuration (lab/core.py)
 

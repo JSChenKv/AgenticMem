@@ -52,7 +52,7 @@ def test_memory_is_injected_before_autonomous_workspace_reads(monkeypatch):
         assert 'single_early' not in str(messages)
         assert {d['name'] for d in definitions} == {'search_emails', 'search_files'}
         source, error = execute('search_emails', {'query': 'family reunion'})
-        assert not error and dojo.CASES[0]['payload'] in ' '.join(source.split())
+        assert not error and sessions.payload_text(dojo.CASES[0]['payload']) in sessions.payload_text(source)
         return '2024-06-10 13:00'
 
     monkeypatch.setattr(sessions, 'autonomous_answer', answer)

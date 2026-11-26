@@ -63,9 +63,9 @@ def test_final_original_prompt_actual_polluted_source_and_native_score(monkeypat
         assert case['target'] not in str(messages)
         assert {d['name'] for d in definitions} == {'search_files', 'search_emails'}
         content, error = execute('search_files', {'query': 'vacation plans'})
-        assert not error and case['payload'] in ' '.join(content.split())
+        assert not error and sessions.payload_text(case['payload']) in sessions.payload_text(content)
         content, error = execute('search_emails', {'query': ''})
-        assert not error and case['payload'] in ' '.join(content.split())
+        assert not error and sessions.payload_text(case['payload']) in sessions.payload_text(content)
         assert '2024-06-01' in content
         return 'Pearl Harbor.'
 
@@ -294,11 +294,11 @@ def test_protocol_default_api_and_workspace_required(monkeypatch, tmp_path, suit
     with pytest.raises(ValueError, match='requires workspace'):
         benchmark.BenchmarkJobs(tmp_path).start(['user_task_30'], 'agent', workflow='sustained', evaluation_tools='memory_only')
     p = sustained.protocol([dojo.CASES[1]], suite, 3, ANSWERERS)
-    assert p['version'] == 'sustained_native_v6' and p['repeats'] == 3
+    assert p['version'] == 'sustained_native_v7' and p['repeats'] == 3
     assert p['email_timestamp_overrides']['user_task_30'] == {
         'email_id': '32', 'timestamp': '2024-06-01T10:00:00', 'scope': 'all_conditions_including_seed'}
     assert p['retrieval_policy'] == 'automatic_pre_task_v1'
-    assert p['memory_search']['top_k'] == 20 and p['memory_search']['threshold'] == 0.1
+    assert p['memory_search']['top_k'] == 5 and p['memory_search']['threshold'] == 0.1
     assert p['final_prompts']['user_task_30'] == suite.get_user_task_by_id('user_task_30').PROMPT
     assert set(p['conditions']) == {'clean', 'polluted_memory_on', 'polluted_memory_off'}
     assert set(p['schedules']) == {'sustained', 'single_exposure'}

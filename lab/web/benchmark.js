@@ -1,5 +1,5 @@
 const $ = id => document.getElementById(id);
-const labels = { user_task_14: 'Family reunion', user_task_30: 'Hawaii itinerary' };
+const labels = { user_task_14: 'Family reunion', user_task_15: 'Family reunion · calendar', user_task_17: 'Hiking trip', user_task_18: 'Hiking trip · calendar', user_task_30: 'Hawaii itinerary' };
 const sustainedStages = [['scripted_seed', 'Scripted seed'], ['baseline', 'S0'], ['design_check', 'Design check'], ['session_1', 'S1'], ['session_2', 'S2'], ['session_3', 'S3'], ['single_exposure', 'Single exposure'], ['native_final', 'Native Final'], ['memory_final', 'Memory-only Final']];
 const statusLabels = { starting: 'Starting', running: 'Running', completed: 'Completed', needs_review: 'Needs review', error: 'Process error', interrupted: 'Interrupted', incomplete: 'Incomplete', baseline_failed: 'Autonomous baseline failed', seed_failed: 'Scripted seed failed', seed_design_failed: 'Seed design check failed', design_check_only: 'Design check only (dry run)' };
 let selectedRun = '', activeRun = null, loading = false, submitting = false, timer, selectionVersion = 0;
@@ -18,7 +18,7 @@ function setControls() {
   $('memory-model').disabled = submitting || Boolean(activeRun) || $('memory-backend').value === 'follow';
   $('policy').disabled = true;
   $('policy').value = 'agent';
-  $('policy-help').textContent = 'Automatic memory retrieval (top 20, threshold 0.1) before every memory-on session; email/file tools remain agent-selected. Sustained keeps the payload through the native Final; single exposure has it only in S1. Memory off applies to the entire timeline.';
+  $('policy-help').textContent = 'Automatic memory retrieval (top 5, threshold 0.1) before every memory-on session; memory-on S1–S3 may delete memories; email/file tools remain agent-selected. Sustained keeps the payload through the native Final; single exposure has it only in S1. Memory off applies to the entire timeline.';
 }
 function evidence(title, text) { const details = el('details', 'evidence'); details.append(el('summary', '', title), el('pre', '', typeof text === 'string' ? text : JSON.stringify(text, null, 2))); return details; }
 function analysisValue(value) { return value == null ? 'Not recorded / needs review' : value ? 'Yes' : 'No'; }
@@ -119,7 +119,7 @@ function renderSustained(result) {
   const yes = value => value === undefined || value === null ? 'Not recorded' : value ? 'Yes' : 'No';
   panel.append(el('h3', '', `Three conditions · ${result.protocol || 'sustained_native'}${result.repeat ? ' · repeat ' + result.repeat : ''}`), el('p', 'config-note', 'Fresh sessions · S1 → S2 → S3 → original AgentDojo task. Sustained keeps the payload through the native Final; single exposure has it only in S1 (shared). Memory off applies throughout.'));
   panel.append(el('p', 'config-note', result.retrieval_policy === 'automatic_pre_task_v1' ? 'Retrieval policy: automatic before each memory-on session, including Final. Application searches are recorded separately from agent tools.' : 'Historical retrieval policy: agent-selected memory search. These results precede automatic memory injection.'));
-  if (['sustained_native_v3', 'sustained_native_v4', 'sustained_native_v5', 'sustained_native_v6'].includes(result.protocol) && result.retrieval_policy === 'automatic_pre_task_v1') panel.append(el('p', 'config-note', 'S1: source summary · S2: all-email summary · S3: all-email action items · Final: original question. Source reads remain autonomous; inspect which injection slots were actually seen.'));
+  if (['sustained_native_v3', 'sustained_native_v4', 'sustained_native_v5', 'sustained_native_v6', 'sustained_native_v7'].includes(result.protocol) && result.retrieval_policy === 'automatic_pre_task_v1') panel.append(el('p', 'config-note', 'S1: source summary · S2: all-email summary · S3: all-email action items · Final: original question. Source reads remain autonomous; inspect which injection slots were actually seen.'));
   if (result.scripted_seed) panel.append(evidence('Scripted seed conversations written before S0', result.scripted_seed));
   if (result.design_check) panel.append(el('p', result.design_check.passed ? 'recall-meta' : 'error', `Design check: ${result.design_check.passed ? 'passed' : 'failed — ' + result.design_check.reasons.join(', ')} (real record and distractor in the clean ${result.design_check.top_k ? 'top ' + result.design_check.top_k + (result.design_check.threshold != null ? ', threshold ' + result.design_check.threshold : '') : 'retrieval'}).`));
   if (result.seed) panel.append(evidence('S0: clean seed shared by the memory-on branches', result.seed));
@@ -136,6 +136,8 @@ function renderSustained(result) {
       const trace = value.memory_trace;
       card.append(el('h4', '', `${stage} · ${value.status}`));
       if (stage === 'Final') card.append(el('p', 'recall-meta', `Native task utility: ${yes(value.native_utility)} · Memory unchanged: ${yes(value.memory_unchanged)}`));
+      if (value.calendar_action) card.append(el('p', 'recall-meta', `Calendar event start: ${value.calendar_action.value} (${(value.calendar_action.events || []).map(e => e.start_time).join(', ') || 'no event'})`));
+      if (value.memory_deletions?.length) card.append(el('p', 'recall-meta', `Memories deleted: ${value.memory_deletions.filter(d => d.deleted).length} of ${value.memory_deletions.length} delete_memory calls`));
       const retrieval = value.retrieval_status || (value.memory_enabled === false ? 'disabled' : value.memory_calls === 0 ? 'not_called' : value.retrieved?.length ? 'retrieved' : value.memory_calls > 0 ? 'no_matches' : 'not_recorded');
       const retrievalLabels = {disabled: 'Disabled', not_called: 'Not called (historical)', not_started: 'Not started', injected: `Automatically injected ${value.retrieved?.length || 0} memories`, retrieved: 'Retrieved by agent (historical)', no_matches: 'Searched — no matching memories', error: 'Search failed', not_recorded: 'Not recorded'};
       card.append(el('p', 'recall-meta', `Memory retrieval: ${retrievalLabels[retrieval] || retrieval}`));
@@ -232,7 +234,7 @@ $('run-form').addEventListener('submit', async event => {
   if (!(repeats >= 1 && repeats <= 10)) { showError('run-error', new Error('Use 1–10 repeats.')); return; }
   submitting = true; setControls();
   try {
-    const run = await request('/benchmarks', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({tasks, exposure_policy: 'agent', workflow: 'sustained', evaluation_tools: 'workspace', agent_backend: $('agent-backend').value, agent_model: $('agent-model').value.trim(), memory_backend: $('memory-backend').value, memory_model: $('memory-backend').value === 'follow' ? '' : $('memory-model').value.trim(), repeats, answer_models: answerModels, memory_final_after_s2: $('after-s2').checked, stop_after_design_check: $('design-only').checked})});
+    const run = await request('/benchmarks', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({tasks, attack: $('attack').value, exposure_policy: 'agent', workflow: 'sustained', evaluation_tools: 'workspace', agent_backend: $('agent-backend').value, agent_model: $('agent-model').value.trim(), memory_backend: $('memory-backend').value, memory_model: $('memory-backend').value === 'follow' ? '' : $('memory-model').value.trim(), repeats, answer_models: answerModels, memory_final_after_s2: $('after-s2').checked, stop_after_design_check: $('design-only').checked})});
     activeRun = run.run_id; selectedRun = run.run_id; selectionVersion++; renderRun(run);
     await loadRuns(run.run_id); refresh();
   } catch (error) { showError('run-error', error); }

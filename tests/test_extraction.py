@@ -143,10 +143,10 @@ def test_api_defaults_are_explicit_even_with_legacy_environment(monkeypatch):
 
 
 def test_memory_search_uses_sdk_defaults_and_keeps_user_scope():
-    # v6 uses the Mem0 2.2.1 SDK defaults (as main v5), passed explicitly.
+    # v7: top 5 with the Mem0 2.2.1 SDK-default threshold 0.1, passed explicitly.
     calls = []
     lab = object.__new__(core.Lab)
     lab.memory = SimpleNamespace(search=lambda query, **options: calls.append((query, options)) or {'results': []})
     lab.record = lambda *a, **kw: None
     assert lab.search('alice', 'Hawaii') == {'results': []}
-    assert calls == [('Hawaii', {'filters': {'user_id': 'alice'}, 'top_k': 20, 'threshold': 0.1, 'explain': False})]
+    assert calls == [('Hawaii', {'filters': {'user_id': 'alice'}, 'top_k': 5, 'threshold': 0.1, 'explain': False})]

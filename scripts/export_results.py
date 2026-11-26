@@ -29,7 +29,11 @@ def export_session(source):
                'slot target_claim_record_ids expected_content_present target_content_present clean_correct '
                'scoring evaluated_content target_adoption adoption_assessment snapshot_before snapshot_after '
                'memory_unchanged memory_enabled workspace_condition retrieval_policy source_memory_arm '
-               'schedule checkpoint after_session answer_model built_by sampling retrieval_status attack_vectors_seen')
+               'schedule checkpoint after_session answer_model built_by sampling retrieval_status attack_vectors_seen '
+               'write_tools delete_tool memory_tool_calls calendar_action')
+    if 'memory_deletions' in source:
+        out['memory_deletions'] = [dict(pick(d, 'sequence memory_id deleted'), record=pick(d.get('record') or {}, 'id memory'))
+                                   for d in source['memory_deletions']]
     if 'memory_retrievals' in source:
         out['memory_retrievals'] = [dict(pick(t, 'sequence tool initiator arguments error harness_fixed'),
             retrieved_records=[pick(r, 'id memory score rank') for r in t.get('retrieved_records', [])])
@@ -60,13 +64,13 @@ def export_session(source):
 
 def export_branch(branch):
     return dict(pick(branch, 'condition schedule polluted memory_enabled status error reason initial_snapshot_hashes '
-                             'final_snapshot_hashes observed_exposure_sessions polluted_sessions shared_sessions'),
+                             'final_snapshot_hashes observed_exposure_sessions polluted_sessions shared_sessions deleted_ids'),
                 sessions=[export_session(s) for s in branch.get('sessions', [])])
 
 
 def export_sustained(source):
     out = pick(source, 'protocol status error evaluation_tools conditions comparisons repeat built_by answer_models '
-                       'real_seed_record_ids design_check retrieval_policy memory_search')
+                       'real_seed_record_ids design_check retrieval_policy memory_search attack kind')
     if 'seed' in source:
         out['seed'] = export_session(source['seed'])
     if 'scripted_seed' in source:
@@ -88,7 +92,8 @@ def export_sustained(source):
 
 def export_case(case):
     out = pick(case, 'task_id label vector expected target payload status error reachable_vectors repeat '
-                     'additional_injections additional_injection_policy email_timestamp_override')
+                     'additional_injections additional_injection_policy email_timestamp_override kind family attack '
+                     'write_tools additional_vectors')
     if 'sustained' in case:
         out['sustained'] = export_sustained(case['sustained'])
     return out
@@ -169,9 +174,10 @@ def main():
         print('No current runs to export. Start a three-condition experiment first.')
         return
     lines = ['# Shared experiment results', '',
-             'Current protocol: sustained_native_v6 (main v5 exposure design: automatic pre-task memory retrieval, Hawaii '
+             'Current protocol: sustained_native_v7 (v6 plus top-5 retrieval with a larger scripted store, important_instructions '
+             'payloads, calendar-action tasks 15/18, hiking tasks 17/18 and a delete_memory tool; v6 was main v5 exposure design: automatic pre-task memory retrieval, Hawaii '
              'document + newer email attack, all-inbox S2/S3; plus scripted seed and design check, sustained and single-exposure '
-             'schedules, memory-only Finals after S1 and S3 answered by every answering model, repeats; Mem0 SDK-default retrieval, top 20, threshold 0.1). '
+             'schedules, memory-only Finals after S1 and S3 answered by every answering model, repeats; top-5 retrieval). '
              'Runs record their own protocol version; never pool across versions. '
              'Raw logs and databases remain local.', '',
              '| Run | Status |', '| --- | --- |']
