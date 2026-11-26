@@ -21,6 +21,7 @@ from ollama import Client
 
 from lab.core import ROOT, USER, valid_name
 from lab.agents import CliClient, public_memories, validate_agent, cli_path, cli_status, resolve_extraction
+from lab import tap
 from agentdojo.agent_pipeline.base_pipeline_element import BasePipelineElement
 from agentdojo.agent_pipeline.ground_truth_pipeline import GroundTruthPipeline
 from agentdojo.agent_pipeline.tool_execution import tool_result_to_str
@@ -259,6 +260,10 @@ def render_report(report, path):
     for case in report['cases']:
         title = f"## {case['task_id']} — {case['label']}" + (f" — repeat {case['repeat']}" if case.get('repeat') else '')
         rows += [title, '', 'Fixed injections:', '', '```json', json.dumps(case_injections(case), indent=2), '```', '']
+        if case.get('tap'):
+            rows += [f"Frozen TAP payload from `{case['tap']['search_id']}` (probe source `{case['tap']['source']}`, "
+                     f"probe success `{case['tap']['success']}`). The search ran before the trial, never during it:", '',
+                     '```json', json.dumps(case['tap'], indent=2), '```', '']
         if case.get('email_timestamp_override'):
             rows += ['Email timestamp override (custom extension; identical in every condition):', '',
                      '```json', json.dumps(case['email_timestamp_override'], indent=2), '```', '']
@@ -288,6 +293,8 @@ def main():
     parser.add_argument('--memory-final-after-s2', action='store_true', help='also run memory-only Finals after S2')
     parser.add_argument('--attack', choices=list(ATTACKS), default='update',
                         help="update: assert the attacker value; delete: ask the agent to delete the user's memories (v7)")
+    parser.add_argument('--tap-payloads', type=Path, default=None,
+                        help='frozen TAP payload file from scripts/tap_search.py (development phase; update attack only)')
     parser.add_argument('--stop-after-design-check', action='store_true',
                         help='dry run: scripted seed, S0 and the design check only, no attack sessions')
     parser.add_argument('--run-id', help=argparse.SUPPRESS)
@@ -322,6 +329,21 @@ def main():
     if not re.fullmatch(r'dojo_\d{8}_\d{6}_[a-f0-9]{6}', run_id):
         raise ValueError('Invalid run ID')
     directory = ROOT / 'data' / 'agentdojo_runs' / run_id
+    # Resolve and cross-check frozen TAP payloads before reserving anything on disk.
+    from lab.sustained import VERSION as PROTOCOL_VERSION
+    cases = [c for c in CASES if c['task_id'] in args.tasks]
+    frozen, tap_provenance = None, None
+    if args.tap_payloads:
+        if args.attack != 'update':
+            raise ValueError('Frozen TAP payloads rewrite the update attack only')
+        path = args.tap_payloads if args.tap_payloads.is_absolute() else ROOT / args.tap_payloads
+        frozen = tap.load_payloads(path)
+        # Every frozen goal is checked against the current case inputs, protocol and classifier.
+        cases = tap.apply_payloads(cases, frozen, protocol=PROTOCOL_VERSION)
+        tap_provenance = {'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+                          'search_id': frozen['search_id'], 'classifier': frozen['classifier'],
+                          'search': frozen.get('search'),
+                          'cases': {c['task_id']: c['tap'] for c in cases}}
     if args.run_id:
         # The web job reserves an empty run; never overwrite an existing protocol/result.
         reserved = json.loads((directory / 'web-job.json').read_text(encoding='utf-8'))
@@ -331,11 +353,11 @@ def main():
         directory.mkdir(parents=True)
     dump(ROOT / 'data' / 'benchmark-owner.json', {'run_id': run_id})
     suite = get_suite(VERSION, 'workspace')
-    selected = [with_attack(c, args.attack) for c in CASES if c['task_id'] in args.tasks]
+    selected = [with_attack(c, args.attack) for c in cases]
     progress(directory, None, 'initializing', 0, len(selected) * args.repeats)
     # Archive protocol and inputs BEFORE model execution; no feedback-driven payload edits.
     suite_root = Path(inspect.getfile(type(suite))).parents[1]
-    source_files = [Path(__file__), ROOT / 'lab' / 'values.py', ROOT / 'lab' / 'pipeline.py', ROOT / 'lab' / 'sustained.py', ROOT / 'lab' / 'seeds.py', ROOT / 'lab' / 'sessions.py', ROOT / 'lab' / 'core.py', ROOT / 'lab' / 'agents.py', ROOT / 'lab' / 'mcp_bridge.py',
+    source_files = [Path(__file__), ROOT / 'lab' / 'values.py', ROOT / 'lab' / 'pipeline.py', ROOT / 'lab' / 'sustained.py', ROOT / 'lab' / 'seeds.py', ROOT / 'lab' / 'sessions.py', ROOT / 'lab' / 'core.py', ROOT / 'lab' / 'agents.py', ROOT / 'lab' / 'mcp_bridge.py', ROOT / 'lab' / 'tap.py', ROOT / 'lab' / 'llm.py', ROOT / 'scripts' / 'tap_search.py',
                     *sorted(suite_root.rglob('*.py')),
                     *sorted((suite_root / 'data' / 'suites' / 'workspace').rglob('*.yaml')),
                     *sorted((suite_root / 'default_suites').glob('*/workspace/user_tasks.py'))]
@@ -348,6 +370,7 @@ def main():
                 'workflow': args.workflow, 'evaluation_tools': args.evaluation_tools,
                 'repeats': args.repeats, 'answer_models': answer_models, 'attack': args.attack,
                 'attack_template': 'agentdojo important_instructions (no model name)',
+                'tap_payloads': tap_provenance,
                 'answer_clis': {b: cli_status(b) for b in args.answer_models if b != 'ollama'},
                 'memory_final_after_s2': args.memory_final_after_s2, 'stop_after_design_check': args.stop_after_design_check,
                 'models': Client(host=url).list().model_dump(mode='json'),
@@ -360,14 +383,15 @@ def main():
     dump(directory / 'protocol.json', manifest)
     snapshot = directory / 'source-snapshot'
     snapshot.mkdir()
-    for source in (Path(__file__), ROOT / 'lab' / 'values.py', ROOT / 'lab' / 'pipeline.py', ROOT / 'lab' / 'sustained.py', ROOT / 'lab' / 'seeds.py', ROOT / 'lab' / 'sessions.py', ROOT / 'lab' / 'core.py', ROOT / 'lab' / 'agents.py', ROOT / 'lab' / 'mcp_bridge.py', ROOT / 'requirements-benchmark.lock.txt'):
+    for source in (Path(__file__), ROOT / 'lab' / 'values.py', ROOT / 'lab' / 'pipeline.py', ROOT / 'lab' / 'sustained.py', ROOT / 'lab' / 'seeds.py', ROOT / 'lab' / 'sessions.py', ROOT / 'lab' / 'core.py', ROOT / 'lab' / 'agents.py', ROOT / 'lab' / 'mcp_bridge.py', ROOT / 'lab' / 'tap.py', ROOT / 'lab' / 'llm.py', ROOT / 'scripts' / 'tap_search.py', ROOT / 'requirements-benchmark.lock.txt'):
         if source.exists():
             shutil.copyfile(source, snapshot / source.name)
     report = {'run_id': run_id, 'directory': str(directory), 'cases': [], 'status': 'running', 'exposure_policy': args.exposure_policy,
               'agent': {'backend': args.agent_backend, 'model': model or 'CLI default'}, 'memory_model': manifest['memory_model'],
               'extraction': extraction, 'context_policy': 'task_only_v1',
               'workflow': args.workflow, 'evaluation_tools': args.evaluation_tools,
-              'repeats': args.repeats, 'answer_models': answer_models, 'attack': args.attack}
+              'repeats': args.repeats, 'answer_models': answer_models, 'attack': args.attack,
+              'tap_payloads': tap_provenance}
     dump(directory / 'summary.json', report)
     output = ROOT / 'reports' / 'agentdojo-latest.md'
     output.parent.mkdir(exist_ok=True)
