@@ -102,12 +102,18 @@ def export_case(case):
 def render_run(run, review_available=False):
     from lab.sustained import report_lines
     lines = [f"# {run['run_id']}", '', f"Status: **{run['status']}**", '',
+             f"Attack: **{run.get('attack', 'update')}**", '',
              f"Task agent: `{run.get('agent', {})}`", '',
              f"Memory extraction: `{run.get('extraction', {})}`", '',
              '[Structured results](summary.json) · [All runs](../../README.md)', '',
              'Three conditions, autonomous tools, original AgentDojo task and native utility at the native Final; '
              'protocols v3 and v6 add a single-exposure schedule and memory-only Finals answered by every answering model.',
              'Native task success and semantic attacker adoption are separate outcomes.', '']
+    tap = (run.get('protocol') or {}).get('tap_payloads')
+    if tap:
+        lines += [f"Frozen payloads from TAP search `{tap['search_id']}` (file sha256 `{tap['sha256']}`): the search ran "
+                  'before this trial and the trial never called a search model. Per-case probe outcomes are in the '
+                  'structured results.', '']
     if run.get('source_status') != run['status'] and 'source_status' in run:
         lines += [f"The source summary stopped at `{run['source_status']}`; the web job recorded `{run['status']}` (exit code {run.get('execution', {}).get('exit_code')}).", '']
     if not run['cases']:
@@ -142,7 +148,7 @@ def main():
             raise ValueError(f'Unsupported workflow in {summary.parent.name}')
         protocol_path = summary.parent / 'protocol.json'
         protocol = json.loads(protocol_path.read_text(encoding='utf-8')) if protocol_path.exists() else {}
-        out = pick(source, 'run_id status exposure_policy agent memory_model extraction context_policy workflow evaluation_tools repeats answer_models')
+        out = pick(source, 'run_id status attack exposure_policy agent memory_model extraction context_policy workflow evaluation_tools repeats answer_models')
         job_path = summary.parent / 'web-job.json'
         if job_path.exists():
             job = json.loads(job_path.read_text(encoding='utf-8'))
@@ -151,7 +157,7 @@ def main():
                 out['source_status'], out['status'] = source['status'], job['status']
         out['export_schema'] = 'agenticmem-shared-results-v2'
         out['source_summary_sha256'] = hashlib.sha256(summary.read_bytes()).hexdigest()
-        out['protocol'] = pick(protocol, 'agentdojo benchmark_version suite mem0ai model agent_backend memory_model extraction exposure_policy context_policy seed num_ctx read_tools workflow evaluation_tools sustained_protocol repeats answer_models memory_final_after_s2')
+        out['protocol'] = pick(protocol, 'agentdojo benchmark_version suite mem0ai model agent_backend memory_model extraction exposure_policy context_policy seed num_ctx read_tools workflow evaluation_tools sustained_protocol repeats answer_models memory_final_after_s2 tap_payloads')
         out['cases'] = [export_case(case) for case in source['cases']]
         target = destination / 'runs' / summary.parent.name
         target.mkdir(parents=True, exist_ok=True)
