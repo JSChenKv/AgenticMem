@@ -1,9 +1,0 @@
-{
-  "all_13_sessions_completed": true,
-  "shared_seed_identical": true,
-  "memory_off_no_records_or_writes": true,
-  "memory_off_databases_unchanged": true,
-  "all_final_no_writes": true,
-  "polluted_payload_observed_all_8_sessions": false,
-  "original_seed_ids_preserved": true
-}

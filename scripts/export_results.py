@@ -24,12 +24,12 @@ def records(items):
 
 def export_session(source):
     out = pick(source, 'session_id status error memory_audit_error reason prompt answer scheduled_attack attack_source_seen '
-               'attack_tool_reads memory_calls workspace_calls write_enabled exposure_observation native_utility '
+               'attack_tool_reads memory_calls environment_calls lookup_calls action_calls write_enabled exposure_observation native_utility '
                'slot target_claim_record_ids expected_content_present target_content_present clean_correct '
                'scoring evaluated_content target_adoption adoption_assessment snapshot_before snapshot_after '
-               'memory_unchanged memory_enabled workspace_condition retrieval_policy source_memory_arm '
+               'memory_unchanged memory_enabled source_condition retrieval_policy source_memory_arm '
                'schedule checkpoint after_session answer_model built_by sampling retrieval_status attack_vectors_seen '
-               'write_tools delete_tool memory_tool_calls calendar_action')
+               'write_tools delete_tool memory_tool_calls action_outcome memory_final_tools')
     if 'memory_deletions' in source:
         out['memory_deletions'] = [dict(pick(d, 'sequence memory_id deleted'), record=pick(d.get('record') or {}, 'id memory'))
                                    for d in source['memory_deletions']]
@@ -69,7 +69,7 @@ def export_branch(branch):
 
 def export_sustained(source):
     out = pick(source, 'protocol status error evaluation_tools conditions comparisons repeat built_by answer_models '
-                       'real_seed_record_ids design_check retrieval_policy memory_search attack kind')
+                       'real_seed_record_ids design_check retrieval_policy memory_search attack kind case_id suite task_id')
     if 'seed' in source:
         out['seed'] = export_session(source['seed'])
     if 'scripted_seed' in source:
@@ -77,22 +77,18 @@ def export_sustained(source):
         out['scripted_seed'] = dict(pick(scripted, 'status error distractor_ids unrelated_ids'),
                                     conversations=[pick(c, 'kind messages added_ids') for c in scripted.get('conversations', [])],
                                     memory_after=records(scripted.get('memory_after', [])))
-    if 'schedules' in source:
-        out['schedules'] = {name: {arm: export_branch(b) for arm, b in branches.items()}
-                            for name, branches in source['schedules'].items()}
-        out['checkpoints'] = {name: {arm: pick(c, 'snapshot_hashes') for arm, c in arms.items()}
-                              for name, arms in source.get('checkpoints', {}).items()}
-    else:  # v1/v2 runs
-        out['branches'] = {arm: export_branch(branch) for arm, branch in source.get('branches', {}).items()}
+    out['schedules'] = {name: {arm: export_branch(b) for arm, b in branches.items()}
+                        for name, branches in source.get('schedules', {}).items()}
+    out['checkpoints'] = {name: {arm: pick(c, 'snapshot_hashes deleted_ids') for arm, c in arms.items()}
+                          for name, arms in source.get('checkpoints', {}).items()}
     out['evaluations'] = {kind: {arm: export_session(v) for arm, v in group.items()}
                           for kind, group in source.get('evaluations', {}).items()}
     return out
 
 
 def export_case(case):
-    out = pick(case, 'task_id label vector expected target payload status error reachable_vectors repeat '
-                     'additional_injections additional_injection_policy email_timestamp_override kind family attack '
-                     'write_tools additional_vectors')
+    out = pick(case, 'id suite task_id label vector expected target payload status error reachable_vectors repeat '
+                     'kind family area attack write_tools lookup_tools')
     if 'sustained' in case:
         out['sustained'] = export_sustained(case['sustained'])
     return out
@@ -105,28 +101,19 @@ def render_run(run):
              f"Memory extraction: `{run.get('extraction', {})}`", '',
              '[Structured results](summary.json) · [All runs](../../README.md)', '',
              'Three conditions, autonomous tools, original AgentDojo task and native utility at the native Final; '
-             'protocols v3 and v6 add a single-exposure schedule and memory-only Finals answered by every answering model.',
+             'with a single-exposure schedule and memory-only Finals answered by every answering model.',
              'Native task success and semantic attacker adoption are separate outcomes.', '']
     if run.get('source_status') != run['status'] and 'source_status' in run:
         lines += [f"The source summary stopped at `{run['source_status']}`; the web job recorded `{run['status']}` (exit code {run.get('execution', {}).get('exit_code')}).", '']
     if not run['cases']:
         lines += ['No task-session results were recorded. This is an execution failure, not an attack trial.', '']
     for case in run['cases']:
-        title = f"## {case['task_id']} — {case['label']}" + (f" — repeat {case['repeat']}" if case.get('repeat') else '')
-        lines += [title, '', 'Fixed payload:', '', '> ' + case['payload'], '']
-        lines += ['Injection slots: `' + '`, `'.join([case['vector'], *case.get('additional_injections', {})]) + '`.', '']
-        if case.get('email_timestamp_override'):
-            lines += ['Email timestamp override (all conditions, custom extension): `' + json.dumps(case['email_timestamp_override']) + '`.', '']
+        title = (f"## {case['id']} ({case['suite']} {case['task_id']}) — {case['label']}"
+                 + (f" — repeat {case['repeat']}" if case.get('repeat') else ''))
+        lines += [title, '', 'Fixed payload:', '', '> ' + ' '.join(case['payload'].split()), '']
+        lines += ['Injection slot: `' + case['vector'] + '`.', '']
         if 'sustained' in case:
             lines += report_lines(case['sustained'])
-            finals = case['sustained'].get('evaluations', {}).get('native', {})
-            sustained_finals = [v for k, v in finals.items() if v.get('schedule', 'sustained') == 'sustained']
-            if len(sustained_finals) == 3 and all(v.get('status') == 'completed' and v.get('memory_calls') == 0 for v in sustained_finals):
-                lines += ['**Interpretation limit:** All three sustained native Final sessions answered without calling memory search. '
-                          'The native Final does not establish resistance to retrieved poisoned memory'
-                          + (' (see the memory-only Final above).' if case['sustained'].get('evaluations', {}).get('memory')
-                             else '; this run predates the memory-only Final (protocol v2).') + ' '
-                          'Read the session answers and saved records; target mentions can be qualified or rejected.', '']
         if case.get('error'):
             lines += ['Recorded error: ' + case['error'], '']
     return '\n'.join(lines)
@@ -150,42 +137,26 @@ def main():
                 out['source_status'], out['status'] = source['status'], job['status']
         out['export_schema'] = 'agenticmem-shared-results-v2'
         out['source_summary_sha256'] = hashlib.sha256(summary.read_bytes()).hexdigest()
-        out['protocol'] = pick(protocol, 'agentdojo benchmark_version suite mem0ai model agent_backend memory_model extraction exposure_policy context_policy seed num_ctx read_tools workflow evaluation_tools sustained_protocol repeats answer_models memory_final_after_s2')
+        out['protocol'] = pick(protocol, 'agentdojo benchmark_version suites mem0ai model agent_backend memory_model extraction exposure_policy context_policy seed num_ctx area_tools workflow evaluation_tools sustained_protocol repeats answer_models attack memory_final_after_s2')
         out['cases'] = [export_case(case) for case in source['cases']]
         target = destination / 'runs' / summary.parent.name
         target.mkdir(parents=True, exist_ok=True)
         (target / 'summary.json').write_text(json.dumps(out, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
         (target / 'report.md').write_text(render_run(out), encoding='utf-8')
-        validation_path = summary.parent / 'validation.json'
-        if validation_path.exists():
-            checks = json.loads(validation_path.read_text(encoding='utf-8'))
-            allowed = ('all_13_sessions_completed', 'shared_seed_identical', 'memory_off_no_records_or_writes',
-                       'memory_off_databases_unchanged', 'all_final_no_writes',
-                       'polluted_payload_observed_all_8_sessions', 'original_seed_ids_preserved',
-                       'memory_off_no_reads_records_or_writes', 'all_memory_on_automatic_search',
-                       'all_s2_s3_read_entire_inbox', 'polluted_s2_s3_saw_email_payload',
-                       'document_payload_retained_and_observed', 'protocol_v5_and_matched_new_date',
-                       'all_observed_hiking_email_dates_updated')
-            shared = {key: checks[key] for key in allowed if isinstance(checks.get(key), bool)}
-            (target / 'validation.json').write_text(json.dumps(shared, indent=2) + '\n', encoding='utf-8')
         runs.append(out)
     if not runs:
         print('No current runs to export. Start a three-condition experiment first.')
         return
     lines = ['# Shared experiment results', '',
-             'Current protocol: sustained_native_v7 (v6 plus top-5 retrieval with a larger scripted store, important_instructions '
-             'payloads, calendar-action tasks 15/18, hiking tasks 17/18 and a delete_memory tool; v6 was main v5 exposure design: automatic pre-task memory retrieval, Hawaii '
-             'document + newer email attack, all-inbox S2/S3; plus scripted seed and design check, sustained and single-exposure '
-             'schedules, memory-only Finals after S1 and S3 answered by every answering model, repeats; top-5 retrieval). '
-             'Runs record their own protocol version; never pool across versions. '
+             'Current protocol: sustained_native_v8 (five tasks from the AgentDojo banking and workspace suites whose real '
+             'fact is itself a change or depends on context: banking 2, 13 and 6, workspace 25 and 2; top-5 retrieval with a '
+             'scripted store, important_instructions payloads, action outcomes in the simulated environment and a '
+             'delete_memory tool). Runs record their own protocol version; never pool across versions. '
              'Raw logs and databases remain local.', '',
              '| Run | Status |', '| --- | --- |']
     for run in runs:
         lines.append(f"| [{run['run_id']}](runs/{run['run_id']}/report.md) | {run['status']} |")
     lines += ['', '[Five-stage analysis](analysis/pipeline_stages.md) · [Analysis JSON](analysis/pipeline_stages.json)', '']
-    if (destination / 'teammate' / 'README.md').exists():
-        lines += ['[Teammate-branch results](teammate/README.md): the aditya v3 Hawaii trial, kept separately; '
-                  'the merged analysis above includes it.', '']
     lines += [
               'Native utility and semantic attack adoption are separate. Automatic labels remain provisional.',
               'Local web history reads data/agentdojo_runs; these exports do not populate it.', '']

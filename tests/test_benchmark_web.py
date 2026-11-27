@@ -43,9 +43,9 @@ def test_job_inputs_cannot_inject_commands_or_arbitrary_tasks(monkeypatch, tmp_p
     monkeypatch.setattr(api, 'jobs', manager)
     client = TestClient(api.app)
     for query in ({'tasks': []}, {'tasks': ['user_task_99']}, {'tasks': ['--help']},
-                  {'tasks': ['user_task_14'], 'exposure_policy': 'shell'}):
+                  {'tasks': ['banking_2'], 'exposure_policy': 'shell'}):
         assert client.post('/benchmarks', json=query).status_code == 422
-    assert client.post('/benchmarks', json={'tasks': ['user_task_14'] * 2}).status_code == 400
+    assert client.post('/benchmarks', json={'tasks': ['banking_2'] * 2}).status_code == 400
     for run_id in ('x', 'dojo_20261019_020000_abcdef.exe', '..%5C..%5C.env'):
         assert client.get('/benchmarks/' + run_id).status_code == 404
     assert not manager.runs.exists()
@@ -71,7 +71,7 @@ def test_jobs_run_in_isolated_child_and_serialize_model_access(monkeypatch, tmp_
     monkeypatch.setattr(benchmark.subprocess, 'Popen', launch)
     client = TestClient(api.app)
     try:
-        response = client.post('/benchmarks', json={'tasks': ['user_task_14'], 'answer_models': ['ollama']})
+        response = client.post('/benchmarks', json={'tasks': ['banking_2'], 'answer_models': ['ollama']})
         assert response.status_code == 202
         run = response.json()
         assert run['active'] and run['status'] == 'running'
@@ -79,7 +79,7 @@ def test_jobs_run_in_isolated_child_and_serialize_model_access(monkeypatch, tmp_
         assert captured[0][1]['cwd'] == tmp_path
         assert captured[0][1]['env']['PYTHONUTF8'] == '1'
         assert (manager.path(run['run_id']) / 'web-job.json').exists()
-        assert client.post('/benchmarks', json={'tasks': ['user_task_30'], 'answer_models': ['ollama']}).status_code == 409
+        assert client.post('/benchmarks', json={'tasks': ['workspace_2'], 'answer_models': ['ollama']}).status_code == 409
         assert client.post('/chat', json={'text': 'hello'}).status_code == 409
         directory = manager.path(run['run_id'])
         (directory / 'summary.json').write_text(json.dumps({'status': 'completed_with_limitations', 'cases': []}))
@@ -100,7 +100,7 @@ def test_failed_launch_is_persisted_without_blocking_future_jobs(monkeypatch, tm
 
     monkeypatch.setattr(benchmark.subprocess, 'Popen', fail)
     client = TestClient(api.app)
-    assert client.post('/benchmarks', json={'tasks': ['user_task_14'], 'answer_models': ['ollama']}).status_code == 503
+    assert client.post('/benchmarks', json={'tasks': ['banking_2'], 'answer_models': ['ollama']}).status_code == 503
     assert not manager.running()
     assert manager.list()[0]['status'] == 'error'
 
@@ -128,14 +128,14 @@ def test_surviving_worker_lock_blocks_a_second_run_and_is_visible(tmp_path):
         assert manager.running() and manager.active_run == RUN
         assert manager.get(RUN)['active']
         with pytest.raises(RuntimeError, match='already running'):
-            manager.start(['user_task_14'], 'agent', answer_models=['ollama'])
+            manager.start(['banking_2'], 'agent', answer_models=['ollama'])
     assert not manager.running()
     assert manager.get(RUN)['status'] == 'interrupted'
 
 
 def test_stage_progress_is_atomic_and_has_no_answers(tmp_path):
     from lab.dojo import progress
-    progress(tmp_path, 'user_task_14', 'poison', 0, 2)
+    progress(tmp_path, 'banking_2', 'poison', 0, 2)
     saved = json.loads((tmp_path / 'progress.json').read_text())
     assert saved['stage'] == 'poison' and saved['total_cases'] == 2
     assert 'expected' not in saved and not (tmp_path / 'progress.tmp').exists()
@@ -147,7 +147,7 @@ def test_stage_progress_is_atomic_and_has_no_answers(tmp_path):
 ])
 def test_removed_workflows_cannot_launch(monkeypatch, settings):
     monkeypatch.setattr(api, 'jobs', SimpleNamespace(start=lambda *a: pytest.fail('Must not launch')))
-    response = TestClient(api.app).post('/benchmarks', json={'tasks': ['user_task_30'], **settings})
+    response = TestClient(api.app).post('/benchmarks', json={'tasks': ['workspace_2'], **settings})
     assert response.status_code == 422
 
 
@@ -165,7 +165,7 @@ def test_progress_retries_transient_windows_reader_lock(monkeypatch, tmp_path):
 
     monkeypatch.setattr(Path, 'replace', replace)
     monkeypatch.setattr(dojo.time, 'sleep', lambda seconds: None)
-    dojo.progress(tmp_path, 'user_task_30', 'baseline', 0, 1)
+    dojo.progress(tmp_path, 'workspace_2', 'baseline', 0, 1)
     assert len(attempts) == 3
     assert json.loads((tmp_path / 'progress.json').read_text())['stage'] == 'baseline'
     assert not (tmp_path / 'progress.tmp').exists()
@@ -181,4 +181,10 @@ def test_progress_does_not_hide_persistent_permission_failure(monkeypatch, tmp_p
     monkeypatch.setattr(Path, 'replace', denied)
     monkeypatch.setattr(dojo.time, 'sleep', lambda seconds: None)
     with pytest.raises(PermissionError):
-        dojo.progress(tmp_path, 'user_task_30', 'baseline', 0, 1)
+        dojo.progress(tmp_path, 'workspace_2', 'baseline', 0, 1)
+
+
+def test_web_task_table_matches_the_protocol_cases():
+    from lab import dojo
+    assert benchmark.TASKS == {c['id']: c['label'] for c in dojo.CASES}
+    assert list(api.BenchmarkRequest.model_fields['tasks'].annotation.__args__[0].__args__) == dojo.CASE_IDS

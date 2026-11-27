@@ -14,9 +14,11 @@ import portalocker
 from lab.core import ROOT
 from lab.agents import validate_agent, cli_path, cli_status, resolve_extraction
 
-TASKS = {'user_task_14': 'Family reunion · Email', 'user_task_15': 'Family reunion · Calendar event',
-         'user_task_17': 'Hiking trip · Email', 'user_task_18': 'Hiking trip · Calendar event',
-         'user_task_30': 'Hawaii itinerary · Document + email'}
+# Case IDs and labels of lab.dojo.CASES (kept literal so the web process never imports AgentDojo;
+# tests/test_benchmark_web.py checks that they match).
+TASKS = {'banking_2': 'Rent increase · Landlord notice', 'banking_13': 'Address change · Landlord letter',
+         'banking_6': 'Usual Spotify amount · Transactions', 'workspace_25': 'TODO deadlines · Meeting minutes',
+         'workspace_2': 'Next yoga class · Calendar'}
 RUN_PATTERN = re.compile(r'^dojo_\d{8}_\d{6}_[a-f0-9]{6}$')
 
 
@@ -67,12 +69,12 @@ class BenchmarkJobs:
                 return owner.get('run_id', 'external')
 
     def start(self, tasks, policy, agent_backend='ollama', agent_model='', memory_backend='codex', memory_model='',
-              workflow='sustained', evaluation_tools='workspace', repeats=3, answer_models=('ollama', 'codex', 'claude'),
+              workflow='sustained', evaluation_tools='environment', repeats=3, answer_models=('ollama', 'codex', 'claude'),
               memory_final_after_s2=False, stop_after_design_check=False, attack='update'):
         if workflow != 'sustained' or policy != 'agent':
             raise ValueError('Only sustained exposure with agent-selected tools is supported')
-        if evaluation_tools != 'workspace':
-            raise ValueError('Sustained exposure requires workspace tools at Final')
+        if evaluation_tools != 'environment':
+            raise ValueError('Sustained exposure requires environment tools at Final')
         validate_agent(agent_backend, agent_model)
         extraction = resolve_extraction(agent_backend, agent_model, memory_backend, memory_model)
         if agent_backend != 'ollama' and not cli_path(agent_backend):
@@ -197,12 +199,12 @@ class BenchmarkJobs:
             console = ''
         return {'run_id': run_id, 'status': status, 'active': active, 'progress': progress,
                 'workflow': summary.get('workflow', job.get('workflow', 'sustained')),
-                'evaluation_tools': summary.get('evaluation_tools', job.get('evaluation_tools', 'workspace')),
+                'evaluation_tools': summary.get('evaluation_tools', job.get('evaluation_tools', 'environment')),
                 'agent': summary.get('agent', job.get('agent', {'backend': 'ollama', 'model': 'qwen2.5:7b'})),
                 'memory_model': summary.get('memory_model', 'qwen2.5:7b'),
                 'extraction': summary.get('extraction', job.get('extraction', {
                     'mode': 'follow', 'backend': 'ollama', 'model': summary.get('memory_model', 'qwen2.5:7b')})),
-                'tasks': job.get('tasks', sorted({c['task_id'] for c in summary.get('cases', [])})),
+                'tasks': job.get('tasks', sorted({c['id'] for c in summary.get('cases', [])})),
                 'repeats': summary.get('repeats', job.get('repeats', 1)),
                 'answer_models': summary.get('answer_models', job.get('answer_models')),
                 'protocol': next((c.get('sustained', {}).get('protocol') for c in summary.get('cases', []) if c.get('sustained')), None),

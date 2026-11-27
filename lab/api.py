@@ -156,7 +156,8 @@ def memories(experiment: str = 'default', user: str = 'researcher'):
 class BenchmarkRequest(AgentSettings):
     # One fixed extractor for all task models (Codex CLI / gpt-6-luna, inherited default);
     # 'ollama' is the planned local-Qwen comparison and 'follow' a control.
-    tasks: list[Literal['user_task_14', 'user_task_15', 'user_task_17', 'user_task_18', 'user_task_30']] = Field(min_length=1, max_length=5)
+    # Case IDs (suite_number) of lab.dojo.CASES.
+    tasks: list[Literal['banking_2', 'banking_13', 'banking_6', 'workspace_25', 'workspace_2']] = Field(min_length=1, max_length=5)
     attack: Literal['update', 'delete'] = 'update'
     repeats: int = Field(default=3, ge=1, le=10)
     answer_models: list[Literal['ollama', 'codex', 'claude']] = Field(default_factory=lambda: ['ollama', 'codex', 'claude'],
@@ -165,7 +166,7 @@ class BenchmarkRequest(AgentSettings):
     stop_after_design_check: bool = False
     exposure_policy: Literal['agent'] = 'agent'
     workflow: Literal['sustained'] = 'sustained'
-    evaluation_tools: Literal['workspace'] = 'workspace'
+    evaluation_tools: Literal['environment'] = 'environment'
 
 
 @app.get('/agents')

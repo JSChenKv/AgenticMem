@@ -10,33 +10,34 @@ from lab.core import USER
 from lab.dojo import CASES
 from lab.values import attacker_content, classify_detail
 
-TASKS = [c['task_id'] for c in CASES]
+TASKS = [c['id'] for c in CASES]
 
 
-@pytest.mark.parametrize('task_id', TASKS)
-def test_scripted_texts_carry_no_task_value_in_any_framing(task_id):
-    # Every scripted text is checked against both tasks: neither value may appear anywhere.
-    for _, messages in seeds.conversations(task_id):
+@pytest.mark.parametrize('case_id', TASKS)
+def test_scripted_texts_carry_no_task_value_in_any_framing(case_id):
+    # Every scripted text is checked against every case: no value may appear anywhere.
+    for _, messages in seeds.conversations(case_id):
         for message in messages:
             for task in TASKS:
                 detail = classify_detail(task, message['content'])
                 assert detail['label'] is None and not attacker_content(task, message['content']), (task, message)
 
 
-@pytest.mark.parametrize('task_id', TASKS)
-def test_one_related_distractor_in_the_middle_and_no_research_words(task_id):
-    items = seeds.conversations(task_id)
+@pytest.mark.parametrize('case_id', TASKS)
+def test_one_related_distractor_in_the_middle_and_no_research_words(case_id):
+    items = seeds.conversations(case_id)
     kinds = [kind for kind, _ in items]
     assert kinds.count('distractor') == 1 and kinds[0] != 'distractor' and kinds[-1] != 'distractor'
     assert 5 <= kinds.count("unrelated") <= 20
     text = json.dumps([messages for _, messages in items]).casefold()  # Only what Mem0 sees.
     for word in ('attack', 'poison', 'experiment', 'benchmark', 'payload', 'research', 'memory test', 'distractor'):
         assert word not in text
-    case = next(c for c in CASES if c['task_id'] == task_id)
+    case = next(c for c in CASES if c['id'] == case_id)
     assert case['expected'].casefold() not in text and case['target'].casefold() not in text
 
 
-DISTRACTOR_TEXT = seeds.DISTRACTORS['user_task_30'][0]
+CASE = CASES[0]
+DISTRACTOR_TEXT = seeds.DISTRACTORS[CASE['id']][0]
 
 
 def fake_seed_lab(monkeypatch, add_hook=None):
@@ -72,14 +73,14 @@ def fake_seed_lab(monkeypatch, add_hook=None):
 
 def test_write_scripted_seed_uses_the_normal_add_path(monkeypatch):
     log = fake_seed_lab(monkeypatch)
-    result = seeds.write_scripted_seed('seed', CASES[1])
+    result = seeds.write_scripted_seed('seed', CASE)
     assert result['status'] == 'completed'
-    assert len(log.added) == len(seeds.conversations('user_task_30'))
+    assert len(log.added) == len(seeds.conversations(CASE['id']))
     assert all(user == USER and source == 'scripted_seed' and [m['role'] for m in messages] == ['user', 'assistant']
                for user, messages, source in log.added)
     assert len(result['distractor_ids']) == 1 and len(result['unrelated_ids']) == len(seeds.UNRELATED)
     assert len(result['memory_after']) == len(log.added)
-    # Everything actually written still passes the lab.values invariants for both tasks.
+    # Everything actually written still passes the lab.values invariants for every case.
     for _, messages, _ in log.added:
         for message in messages:
             for task in TASKS:
@@ -95,7 +96,7 @@ def test_seeding_exception_is_recorded_then_reraised(monkeypatch):
 
     log = fake_seed_lab(monkeypatch, fail)
     with pytest.raises(ConnectionError, match='Ollama unavailable'):
-        seeds.write_scripted_seed('seed', CASES[1])
+        seeds.write_scripted_seed('seed', CASE)
     event, payload = log.records[-1]
     assert event == 'scripted_seed_result' and payload['status'] == 'error' and payload['error'] == 'Ollama unavailable'
     assert 'memory_after' not in payload and log.closed == 1
@@ -104,18 +105,18 @@ def test_seeding_exception_is_recorded_then_reraised(monkeypatch):
 def test_empty_distractor_extraction_is_an_error_not_a_silent_gap(monkeypatch):
     log = fake_seed_lab(monkeypatch, lambda messages: {'results': []} if messages[0]['content'] == DISTRACTOR_TEXT else None)
     with pytest.raises(RuntimeError, match='distractor conversation produced no ADD event'):
-        seeds.write_scripted_seed('seed', CASES[1])
+        seeds.write_scripted_seed('seed', CASE)
     event, payload = log.records[-1]
     assert event == 'scripted_seed_result' and payload['status'] == 'error'
     assert payload['distractor_ids'] == [] and len(payload['unrelated_ids']) == len(seeds.UNRELATED)
     assert next(c for c in payload['conversations'] if c['kind'] == 'distractor')['added_ids'] == []
-    assert len(log.added) == len(seeds.conversations('user_task_30'))  # Every turn was attempted first.
+    assert len(log.added) == len(seeds.conversations(CASE['id']))  # Every turn was attempted first.
 
 
 def test_no_unrelated_extraction_is_an_error(monkeypatch):
     fake_seed_lab(monkeypatch, lambda messages: None if messages[0]['content'] == DISTRACTOR_TEXT else {'results': []})
     with pytest.raises(RuntimeError, match='no unrelated conversation'):
-        seeds.write_scripted_seed('seed', CASES[1])
+        seeds.write_scripted_seed('seed', CASE)
 
 
 def test_run_case_stops_as_seed_failed_when_seeding_raises(monkeypatch):
@@ -127,7 +128,7 @@ def test_run_case_stops_as_seed_failed_when_seeding_raises(monkeypatch):
 
     monkeypatch.setattr(sustained, 'write_scripted_seed', fail)
     monkeypatch.setattr(sustained, 'run_session', lambda *a, **k: pytest.fail('S0 must not run after a failed seed'))
-    result = sustained.run_case(get_suite(dojo.VERSION, 'workspace'), dojo.CASES[1], 'seed', None, None)
+    result = sustained.run_case(get_suite(dojo.VERSION, CASE['suite']), CASE, 'seed', None, None)
     assert result['status'] == 'seed_failed'
     assert result['scripted_seed'] == {'status': 'error', 'error': 'Scripted seed: the distractor conversation produced no ADD event (empty extraction)'}
 
@@ -158,7 +159,7 @@ def test_answering_model_without_cli_is_refused_before_starting(monkeypatch, tmp
     manager = benchmark.BenchmarkJobs(tmp_path)
     monkeypatch.setattr(api, 'jobs', manager)
     monkeypatch.setattr(benchmark, 'cli_path', lambda backend: None)
-    response = TestClient(api.app).post('/benchmarks', json={'tasks': ['user_task_30']})
+    response = TestClient(api.app).post('/benchmarks', json={'tasks': ['banking_2']})
     # The fixed Codex extractor or an answering model is refused first; either way nothing starts.
     assert response.status_code == 400 and 'codex' in response.json()['detail'].lower()
     assert not manager.runs.exists()

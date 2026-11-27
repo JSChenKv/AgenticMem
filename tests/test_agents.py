@@ -98,13 +98,13 @@ def test_web_forwards_agent_selection_and_rejects_option_injection(monkeypatch):
     calls = []
     monkeypatch.setattr(api, 'jobs', SimpleNamespace(start=lambda *args: calls.append(args) or {'run_id': 'test'}))
     client = TestClient(api.app)
-    response = client.post('/benchmarks', json={'tasks': ['user_task_14'], 'agent_backend': 'codex', 'agent_model': 'chosen-model'})
+    response = client.post('/benchmarks', json={'tasks': ['banking_2'], 'agent_backend': 'codex', 'agent_model': 'chosen-model'})
     assert response.status_code == 202
     # v6 defaults: fixed Codex/gpt-6-luna extractor, 3 repeats, all three models answer the memory-only Final.
-    assert calls == [(['user_task_14'], 'agent', 'codex', 'chosen-model', 'codex', '', 'sustained', 'workspace',
+    assert calls == [(['banking_2'], 'agent', 'codex', 'chosen-model', 'codex', '', 'sustained', 'environment',
                       3, ['ollama', 'codex', 'claude'], False, False, 'update')]
     for body in ({'agent_backend': 'shell'}, {'agent_model': '--help'}, {'agent_model': 'x;calc'}):
-        assert client.post('/benchmarks', json={'tasks': ['user_task_14'], **body}).status_code == 422
+        assert client.post('/benchmarks', json={'tasks': ['banking_2'], **body}).status_code == 422
 
 
 def test_unlogged_cli_does_not_launch_a_job(monkeypatch, tmp_path):
@@ -113,5 +113,5 @@ def test_unlogged_cli_does_not_launch_a_job(monkeypatch, tmp_path):
     monkeypatch.setattr(benchmark, 'cli_status', lambda backend: {'logged_in': False})
     manager = benchmark.BenchmarkJobs(tmp_path)
     with pytest.raises(ValueError, match='not logged in'):
-        manager.start(['user_task_14'], 'agent', 'claude')
+        manager.start(['banking_2'], 'agent', 'claude')
     assert not manager.runs.exists()
