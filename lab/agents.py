@@ -234,6 +234,15 @@ def claude_command(executable, cwd, control, model, server):
     return command
 
 
+def _json_object_text(text):
+    """Return the first complete JSON object in a CLI reply, tolerating Markdown fences."""
+    text = (text or '').strip()
+    start, end = text.find('{'), text.rfind('}')
+    if start >= 0 and end > start:
+        return text[start:end + 1]
+    return text
+
+
 class CliClient:
     def __init__(self, backend, model='', record=None):
         validate_agent(backend, model)
@@ -246,7 +255,14 @@ class CliClient:
             raise ValueError('CLI tools require the native MCP runner')
         if format == 'json':
             messages = [*messages, {'role': 'system', 'content': 'Return only a valid JSON object. Do not use Markdown fences.'}]
-        return self.run(messages)
+        result = self.run(messages)
+        if format == 'json':
+            # Some CLI models (e.g. Claude Haiku) wrap the requested object in a Markdown
+            # fence despite the instruction. The JSON contract is the object, not the fence;
+            # return the bare object so strict extraction guards and Mem0 can parse it.
+            content = _json_object_text(result.message.content)
+            return ChatResponse(model=result.model, message=Message(role='assistant', content=content))
+        return result
 
     def run(self, messages, definitions=None, handler=None):
         executable = cli_path(self.backend)
