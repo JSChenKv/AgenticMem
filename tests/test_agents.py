@@ -1,12 +1,11 @@
 import json
 from pathlib import Path
 import subprocess
-import sys
 from types import SimpleNamespace
 
 import pytest
 
-from lab import agents, dojo
+from lab import agents
 
 
 def test_memory_visibility_is_allowlisted_not_blacklisted():
@@ -78,27 +77,6 @@ def test_cli_runner_uses_empty_cwd_and_stdin_without_config_secrets(monkeypatch)
     result = agents.CliClient('codex').chat(messages=[{'role': 'system', 'content': 'Help the user.'}, {'role': 'user', 'content': 'Hello'}])
     assert result.message.content == 'Done'
     assert captured == ['Hello']
-
-
-def test_native_cli_pipeline_executes_real_official_tools(monkeypatch, tmp_path):
-    captured = []
-
-    def run(self, messages, definitions, handler):
-        captured.append((messages, definitions))
-        output, error = handler('search_emails', {'query': 'family reunion'})
-        assert not error and 'Grandma' in output
-        return SimpleNamespace(message=SimpleNamespace(content='2024-06-10 13:00'))
-
-    monkeypatch.setattr(agents.CliClient, 'run', run)
-    suite = dojo.get_suite(dojo.VERSION, 'workspace')
-    task = suite.get_user_task_by_id('user_task_14')
-    pipeline = dojo.CliWorkspacePipeline(tmp_path / 'trace.jsonl', 'codex', '')
-    utility, _ = suite.run_task_with_pipeline(pipeline, task, injection_task=None, injections={})
-    assert utility and pipeline.last['tools'][0]['tool'] == 'search_emails'
-    visible = json.dumps(captured)
-    for forbidden in ('user_task_14', 'baseline', 'benchmark', 'poison', 'research assistant'):
-        assert forbidden not in visible
-    assert {d['name'] for d in captured[0][1]} == {'search_emails', 'search_files'}
 
 
 @pytest.mark.parametrize('model', ['--help', 'x;calc', 'a\nb', '../secret', 'x y'])

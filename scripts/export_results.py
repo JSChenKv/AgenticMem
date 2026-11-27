@@ -6,7 +6,6 @@ allowlist is not a general-purpose scrubber for future model-generated secrets.
 import hashlib
 import json
 from pathlib import Path
-import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -99,7 +98,7 @@ def export_case(case):
     return out
 
 
-def render_run(run, review_available=False):
+def render_run(run):
     from lab.sustained import report_lines
     lines = [f"# {run['run_id']}", '', f"Status: **{run['status']}**", '',
              f"Task agent: `{run.get('agent', {})}`", '',

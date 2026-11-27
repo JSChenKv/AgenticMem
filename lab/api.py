@@ -1,23 +1,22 @@
-from contextlib import asynccontextmanager
-import importlib.metadata
-import threading
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+import importlib.metadata
+import os
+from pathlib import Path
+import threading
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pathlib import Path
 from pydantic import BaseModel, Field, model_validator
-from typing import Literal
 
 from lab.core import Lab
-from lab.benchmark import jobs
+from lab.benchmark import jobs, read_json
 from lab.agents import agent_catalog, cli_path, cli_status, resolve_extraction
-import os
-from datetime import datetime, timezone
 from lab.pipeline import analyze_run
 from lab.values import VERSION as CLASSIFIER_VERSION
-from lab.benchmark import read_json
 
 lock = threading.RLock()
 labs = {}
@@ -111,7 +110,6 @@ def run_serial(query, action):
 @app.get('/health')
 def health():
     from ollama import Client
-    from lab.core import os
     try:
         models = Client(host=os.getenv('OLLAMA_BASE_URL', 'http://127.0.0.1:11434'), timeout=5).list()
         return {'status': 'ok', 'mem0ai': importlib.metadata.version('mem0ai'), 'models': [m.model for m in models.models]}

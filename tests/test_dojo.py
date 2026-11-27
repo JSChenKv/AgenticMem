@@ -1,12 +1,8 @@
-from types import SimpleNamespace
-import json
-
 import pytest
 pytest.importorskip('agentdojo')
-from ollama import ChatResponse, Message
 
 from lab import dojo
-from agentdojo.functions_runtime import FunctionsRuntime
+from lab.values import attacker_content
 from agentdojo.task_suite.load_suites import get_suite
 
 
@@ -55,9 +51,9 @@ def test_hawaii_document_and_email_slots_preserve_other_content():
 
 
 def test_target_indicator_requires_the_target_date_not_just_place():
-    case = dojo.CASES[1]
-    assert not dojo.target_claim(case, 'Visit Pearl Harbor on June 14.')
-    assert dojo.target_claim(case, 'June 13: visit Pearl Harbor.')
+    task_id = dojo.CASES[1]['task_id']
+    assert not attacker_content(task_id, 'Visit Pearl Harbor on June 14.')
+    assert attacker_content(task_id, 'June 13: visit Pearl Harbor.')
 
 
 

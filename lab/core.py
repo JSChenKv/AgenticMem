@@ -173,6 +173,22 @@ class Lab:
             self.record('error', stage='memory_add', error=repr(exc), after=self.memories(user))
             raise
 
+    def _client(self, agent_backend, agent_model):
+        """The configured task agent, or the one a request selects explicitly."""
+        if agent_backend is None:
+            return self.agent_client
+        if agent_backend == 'ollama':
+            return TracedClient(self.client, self.record, 'agent')
+        return CliClient(agent_backend, agent_model, self.record)
+
+    def _extraction(self, agent_backend, agent_model, memory_backend, memory_model):
+        """The default extractor unless a request overrides the agent or the extractor."""
+        if agent_backend is None and memory_backend == 'codex' and not memory_model:
+            return self.default_extraction
+        return resolve_extraction(agent_backend or self.agent_backend,
+                                  agent_model if agent_backend is not None else self.agent_model,
+                                  memory_backend, memory_model)
+
     def ingest_document(self, user, document, agent_backend=None, agent_model='', memory_backend='codex', memory_model=''):
         # The only file-reading tool is limited to the synthetic fixtures folder.
         root = (ROOT / 'fixtures').resolve()
@@ -190,13 +206,11 @@ class Lab:
             {'role': 'tool', 'tool_name': 'read_document', 'content': text},
         ]
         self.record('tool_result', tool='read_document', path=document, content=text, sha256=hashlib.sha256(text.encode()).hexdigest())
-        backend = agent_backend or self.agent_backend
         model = agent_model if agent_backend is not None else self.agent_model
-        client = self.agent_client if agent_backend is None else (TracedClient(self.client, self.record, 'agent') if backend == 'ollama' else CliClient(backend, model, self.record))
-        response = client.chat(model=model or self.model, messages=messages, options={'temperature': 0, 'num_predict': 1024})
+        response = self._client(agent_backend, agent_model).chat(model=model or self.model, messages=messages, options={'temperature': 0, 'num_predict': 1024})
         summary = response.message.content
         # This is explicitly the agent's summary, never a fabricated user message.
-        extraction = resolve_extraction(backend, model, memory_backend, memory_model) if agent_backend is not None or memory_backend != 'codex' or memory_model else self.default_extraction
+        extraction = self._extraction(agent_backend, agent_model, memory_backend, memory_model)
         return self.add(user, [{'role': 'assistant', 'content': summary}], source='external_document_summary', metadata={'document': document, 'summary_operation_id': self.operation, 'sha256': hashlib.sha256(text.encode()).hexdigest()}, extraction=extraction)
 
     def ask(self, user, query, mode='read', history=None, agent_backend=None, agent_model='', memory_backend='codex', memory_model=''):
@@ -218,15 +232,13 @@ class Lab:
             messages.append({'role': 'user', 'content': query})
         backend = agent_backend or self.agent_backend
         validate_agent(backend, agent_model)
-        client = self.agent_client if agent_backend is None else (TracedClient(self.client, self.record, 'agent') if backend == 'ollama' else CliClient(backend, agent_model, self.record))
-        response = client.chat(model=(agent_model or self.model) if backend == 'ollama' else agent_model,
+        response = self._client(agent_backend, agent_model).chat(model=(agent_model or self.model) if backend == 'ollama' else agent_model,
                                messages=messages, options={'temperature': 0, 'num_predict': 1024})
         answer = response.message.content
         result = {'answer': answer, 'retrieved': retrieved, 'mode': mode}
         if mode == 'write':
             # Save user facts only; avoid promoting the agent's answer to user truth.
-            extraction = resolve_extraction(backend, agent_model if agent_backend is not None else self.agent_model,
-                                            memory_backend, memory_model) if agent_backend is not None or memory_backend != 'codex' or memory_model else self.default_extraction
+            extraction = self._extraction(agent_backend, agent_model, memory_backend, memory_model)
             result['memory_write'] = self.add(user, [{'role': 'user', 'content': query}], extraction=extraction)
             result['extraction'] = extraction
         self.record('answer', user=user, query=query, **result)

@@ -32,7 +32,7 @@ Task agents receive ordinary assistant instructions, the user task, necessary to
 
 `cli_input` records the system prompt, task input, and tool definitions supplied by the platform. `cli_output` records CLI responses and errors for auditing inputs, tool calls, and failures. These logs are not the providers' complete internal model requests. New experiment protocols record CLI versions, requested models, and context policies. CLI defaults may change over time.
 
-On the development machine, Codex has been verified with autonomous email retrieval through native MCP and a complete single-case memory pipeline. The Claude executable path is configured, but standalone CLI login was not completed during setup, so live Claude inference remains unverified. After login, run `python scripts/check_cli_agent.py claude` to verify an official read-only task.
+Codex and Claude Code have both run live trials with autonomous workspace retrieval through native MCP. A CLI agent that is logged out or exposes no workspace tools cannot pass S0, so the case stops as `baseline_failed` before any attack session. `--stop-after-design-check` is the cheapest live check of a new CLI setup.
 
 ## Runtime
 

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from lab.dojo import CASES, target_claim
+from lab.dojo import CASES
 from lab.values import attacker_content, classify_detail
 
 DATA = json.loads((Path(__file__).parent / 'regression' / 'real_answers_user_task_30.json').read_text(encoding='utf-8'))
@@ -26,7 +26,7 @@ def test_real_text_asserted_value(item):
 def test_real_text_attacker_content_in_any_framing(item):
     assert attacker_content(DATA['task_id'], item['text']) is item['attacker_content'], item['reading']
     # The runner's target-text indicator uses the same paired-date definition.
-    assert target_claim(CASES[1], item['text']) is item['attacker_content']
+    assert attacker_content(CASES[1]['task_id'], item['text']) is item['attacker_content']
 
 
 def test_month_may_is_not_hedging_and_so_resolves_a_conflict():

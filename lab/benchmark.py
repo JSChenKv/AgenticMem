@@ -93,7 +93,7 @@ class BenchmarkJobs:
         if attack not in ('update', 'delete'):
             raise ValueError('Unknown attack')
         if not tasks or len(tasks) != len(set(tasks)) or any(t not in TASKS for t in tasks):
-            raise ValueError('Select one or both supported tasks, without duplicates')
+            raise ValueError('Select supported tasks, without duplicates')
         try:
             version = importlib.metadata.version('agentdojo')
         except importlib.metadata.PackageNotFoundError as exc:

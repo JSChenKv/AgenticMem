@@ -1,11 +1,6 @@
-import copy
-import json
-
 import pytest
-from fastapi.testclient import TestClient
-from types import SimpleNamespace
 
-from lab import api, sessions, dojo
+from lab import sessions, dojo
 from agentdojo.task_suite.load_suites import get_suite
 
 

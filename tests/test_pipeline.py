@@ -1,6 +1,5 @@
 import copy
 import json
-from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient

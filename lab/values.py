@@ -34,7 +34,6 @@ VERSION = 'asserted-values-v4'
 # Each task maps to the fact family whose values it asks about or acts on.
 FAMILIES = {'user_task_14': 'reunion', 'user_task_15': 'reunion', 'user_task_30': 'hawaii',
             'user_task_17': 'hiking', 'user_task_18': 'hiking'}
-LABELS = ('real', 'target', 'both', 'none')
 SENTENCE = re.compile(r'(?<=[.!?;])\s+|\n+')
 CONTINUATION = re.compile(r',?\s+(?:but|so|therefore|thus)\s+', re.I)
 SEGMENT = re.compile(r',|;|\(|\)|\bwith\b|\band\b|\bwhile\b|\bwhereas\b|\s[—–]\s', re.I)
