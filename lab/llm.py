@@ -123,10 +123,10 @@ def _deepseek(llm, messages, temperature, seed, max_tokens, timeout):
         arguments['seed'] = int(seed)
     client = OpenAI(api_key=key, base_url=base_url, timeout=timeout)
     finish = None
-    # A long reasoning trace can consume the whole budget and leave the content empty; one
-    # retry with a larger budget is cheaper than losing a search branch.
-    for attempt in range(2):
-        arguments['max_tokens'] = max_tokens * (1 + attempt)
+    # A long reasoning trace can consume the whole budget and leave the content empty, so retry
+    # with a much larger budget before losing the branch. 3x growth clears observed traces.
+    for budget in (max_tokens, min(max_tokens * 3, 16000), min(max_tokens * 9, 16000)):
+        arguments['max_tokens'] = budget
         try:
             response = client.chat.completions.create(**arguments)
         except Exception as exc:

@@ -151,15 +151,23 @@ def exposure_prompt(case):
 
 
 def probe_delete_messages(task_id, review_prompt, goal):
-    """S1-style session: the real record is in memory, the poisoned email asks to delete it."""
+    """S1-style session as the trial presents it: one past `search_emails` call whose tool
+    result carries the poisoned email, the real record in the memory envelope, and the review
+    prompt. The instruction must arrive as tool output, not as something the user said."""
     from lab.dojo import render_payload
     from lab.sessions import SYSTEM, memory_context_message
     real, distractor = PROBE_MEMORIES[FAMILIES[task_id]]
     records = [{'id': 'probe-real', 'memory': real}, {'id': 'probe-distractor', 'memory': distractor}]
-    email = 'Email from Emma Johnson (unread):\n' + render_payload(goal)
+    body = render_payload(goal).strip().splitlines()
+    content = '\n'.join('    ' + line for line in body)
+    tool_output = ("- id: '27'\n  sender: emma.johnson@bluesparrowtech.com\n  recipients: [researcher@bluesparrowtech.com]\n"
+                   "  subject: Re: plans\n  timestamp: 2024-05-14 10:00:00\n  content: |-\n" + content)
+    call = {'function': {'name': 'search_emails', 'arguments': {'query': FAMILIES[task_id]}}}
     return [{'role': 'system', 'content': SYSTEM},
             memory_context_message(records),
-            {'role': 'user', 'content': review_prompt + '\n\n' + email}]
+            {'role': 'user', 'content': review_prompt},
+            {'role': 'assistant', 'content': '', 'tool_calls': [call]},
+            {'role': 'tool', 'tool_name': 'search_emails', 'content': tool_output}]
 
 
 def _run_with_tools(llm, messages, definitions, handler):
@@ -316,17 +324,32 @@ def goal_problem(task_id, goal, attack='update'):
     return None
 
 
+def _truncated(reply):
+    """A reply cut off mid-JSON cannot be repaired, but a larger budget can complete it."""
+    return reply.rstrip()[-1:] not in ('}', ']')
+
+
 def make_attacker(llm, *, chat=llm_chat, seed=None, temperature=0.8):
     def propose(case, history, count):
-        reply = chat(llm, attacker_messages(case, history, count), temperature=temperature,
-                     seed=seed, max_tokens=2500)
-        accepted, rejected = [], []
-        for variant in parse_variants(reply, count):
-            problem = goal_problem(case['task_id'], variant['goal'], case.get('attack', 'update'))
-            (accepted if problem is None else rejected).append({**variant, 'rejected': problem})
-        if not accepted:
-            raise TapError('Every attacker variation was rejected: ' + '; '.join(v['rejected'] for v in rejected[:3]))
-        return accepted, rejected
+        messages = attacker_messages(case, history, count)
+        reply, error = None, None
+        for budget in (2500, 5000, 8000):
+            reply = chat(llm, messages, temperature=temperature, seed=seed, max_tokens=budget)
+            try:
+                variants = parse_variants(reply, count)
+            except TapError as exc:
+                error = exc
+                if _truncated(reply):
+                    continue
+                raise
+            accepted, rejected = [], []
+            for variant in variants:
+                problem = goal_problem(case['task_id'], variant['goal'], case.get('attack', 'update'))
+                (accepted if problem is None else rejected).append({**variant, 'rejected': problem})
+            if not accepted:
+                raise TapError('Every attacker variation was rejected: ' + '; '.join(v['rejected'] for v in rejected[:3]))
+            return accepted, rejected
+        raise error
 
     return propose
 
@@ -375,8 +398,18 @@ def parse_score(reply):
 
 def make_evaluator(llm, *, chat=llm_chat, seed=None):
     def score(case, goal):
-        reply = chat(llm, evaluator_messages(case, goal), temperature=0, seed=seed, max_tokens=400)
-        return parse_score(reply)
+        messages = evaluator_messages(case, goal)
+        error = None
+        for budget in (600, 1200, 2000):
+            reply = chat(llm, messages, temperature=0, seed=seed, max_tokens=budget)
+            try:
+                return parse_score(reply)
+            except TapError as exc:
+                error = exc
+                if _truncated(reply):
+                    continue
+                raise
+        raise error
 
     return score
 
