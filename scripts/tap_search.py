@@ -95,16 +95,24 @@ def main():
     parser.add_argument('--max-queries', type=int, default=tap.DEFAULT_CONFIG['max_queries'])
     parser.add_argument('--prune-below', type=int, default=tap.DEFAULT_CONFIG['prune_below'])
     parser.add_argument('--seed', type=int, default=tap.DEFAULT_CONFIG['seed'])
+    parser.add_argument('--no-real-value', action='store_true',
+                        help='update attack only: reject any goal that mentions the real value, even to reject it '
+                             '(a mention makes the target report a conflict)')
     parser.add_argument('--no-baseline-control', action='store_true',
                         help='skip querying the fixed goal first (costs one query, records the control)')
     parser.add_argument('--continue-after-baseline', action='store_true',
                         help='keep searching even if the fixed goal already succeeds in the probe')
+    parser.add_argument('--freeze-best', action='store_true',
+                        help='freeze the best guard-passing candidate even if the probe failed '
+                             '(retrieval-displacement experiments, where the probe still holds the real record)')
     parser.add_argument('--search-id', default='', help='override the generated ID (reproducible reruns)')
     parser.add_argument('--out', type=Path, default=ROOT / 'data' / 'tap')
     parser.add_argument('--dry-run', action='store_true', help='validate inputs and exit without model calls')
     parser.add_argument('--smoke', action='store_true', help='1 level, 2 variations, 1 query per case')
     args = parser.parse_args()
 
+    if args.no_real_value and args.attack != 'update':
+        raise SystemExit('--no-real-value applies to the update attack only')
     if args.smoke:
         args.branching, args.width, args.depth, args.max_queries = 2, 1, 1, 2
         args.cases = args.cases[:1]
@@ -159,10 +167,11 @@ def main():
         try:
             outcome = tap.search(
                 case, prompt,
-                attacker=tap.make_attacker(attacker, seed=config['seed']),
+                attacker=tap.make_attacker(attacker, seed=config['seed'], forbid_real=args.no_real_value),
                 evaluator=tap.make_evaluator(evaluator, seed=config['seed']),
                 target=probe,
                 config=config,
+                freeze_best=args.freeze_best,
                 record=lambda event, **values: write_trace(trace, event, task_id=case['task_id'], **values))
             outcome['status'] = 'completed'
         except (LlmError, tap.TapError) as exc:
@@ -181,7 +190,9 @@ def main():
     if completed:
         payloads = tap.build_payloads(completed, search_id=search_id, protocol=PROTOCOL_VERSION,
                                       llms={'attacker': describe(attacker), 'evaluator': describe(evaluator),
-                                            'target': describe(target)})
+                                            'target': describe(target)},
+                                      options={'forbid_real': bool(args.no_real_value),
+                                               'freeze_best': bool(args.freeze_best)})
         digest = tap.write_payloads(directory / 'payloads.json', payloads)
         (directory / 'report.md').write_text(render_report(results, payloads), encoding='utf-8')
         print(f"Frozen payloads: {directory / 'payloads.json'} (sha256 {digest})")
