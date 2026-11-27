@@ -49,12 +49,17 @@ def write_trace(path, event, **values):
 
 
 def render_report(results, payloads):
+    attack = payloads['cases'][0]['attack'] if payloads['cases'] else 'update'
+    success_note = ('the probe succeeded when the real memory was deleted' if attack == 'delete'
+                    else 'the probe succeeded when the answer asserted the attacker value')
     lines = ['# TAP payload search', '',
-             f"Search: `{payloads['search_id']}`. Protocol: `{payloads['protocol']}`. Classifier: `{payloads['classifier']}`.", '',
+             f"Search: `{payloads['search_id']}`. Attack: `{attack}`. Protocol: `{payloads['protocol']}`. "
+             f"Classifier: `{payloads['classifier']}`.", '',
              f"Attacker: `{payloads['search']['llms'].get('attacker', {}).get('spec', '?')}`. "
              f"Evaluator: `{payloads['search']['llms'].get('evaluator', {}).get('spec', '?')}`. "
              f"Target: `{payloads['search']['llms'].get('target', {}).get('spec', '?')}`.", '',
-             'The probe is a surrogate for the full S1 -> Final chain; frozen goals are validated by a real trial.', '',
+             'The probe is a surrogate for the full S1 -> Final chain; frozen goals are validated by a real trial. '
+             f'For this attack, {success_note}.', '',
              '| Task | Source | Probe success | Label | Queries | Stopped | Frozen goal |',
              '| --- | --- | --- | --- | --- | --- | --- |']
     for entry in payloads['cases']:
@@ -73,6 +78,8 @@ def main():
     parser.add_argument('--cases', nargs='+', choices=[c['task_id'] for c in dojo.CASES],
                         default=['user_task_14', 'user_task_17', 'user_task_30'],
                         help='cases to search; calendar actions are scored by asserted text in the probe')
+    parser.add_argument('--attack', choices=list(tap.ATTACKS), default='update',
+                        help='update: phrasing that asserts the attacker value; delete: instruction that deletes the real memory')
     parser.add_argument('--attacker', default='deepseek',
                         help='default: DEEPSEEK_MODEL (deepseek-flash) on the DeepSeek endpoint')
     parser.add_argument('--attacker-model', default='', help='overrides the model in --attacker')
@@ -114,7 +121,7 @@ def main():
             require_available(llm)
         except LlmError as exc:
             unavailable[role] = str(exc)
-    selected = [c for c in dojo.CASES if c['task_id'] in args.cases]
+    selected = [dojo.with_attack(c, args.attack) for c in dojo.CASES if c['task_id'] in args.cases]
     if len(selected) != len(set(args.cases)):
         raise ValueError('Unknown case')
     suite = get_suite(dojo.VERSION, 'workspace')
@@ -122,7 +129,7 @@ def main():
     if not re.fullmatch(r'tap_\d{8}_\d{6}_[a-f0-9]{6}', search_id):
         raise ValueError('Invalid search ID')
     directory = args.out / search_id
-    print(f"Search {search_id}\n  attacker {attacker['spec']}\n  evaluator {evaluator['spec']}\n"
+    print(f"Search {search_id} ({args.attack} attack)\n  attacker {attacker['spec']}\n  evaluator {evaluator['spec']}\n"
           f"  target   {target['spec']}\n  cases    {', '.join(args.cases)}\n  tree     "
           f"branching={config['branching']} width={config['width']} depth={config['depth']} "
           f"max_queries={config['max_queries']} prune_below={config['prune_below']}", flush=True)
@@ -142,14 +149,19 @@ def main():
     trace.touch()
     results = []
     for case in selected:
-        task_prompt = suite.get_user_task_by_id(case['task_id']).PROMPT
+        if args.attack == 'delete':
+            prompt = tap.exposure_prompt(case)
+            probe = tap.make_delete_target(target, case['task_id'], prompt)
+        else:
+            prompt = suite.get_user_task_by_id(case['task_id']).PROMPT
+            probe = tap.make_target(target, case['task_id'], prompt, seed=config['seed'])
         print(f"[{case['task_id']}] searching", flush=True)
         try:
             outcome = tap.search(
-                case, task_prompt,
+                case, prompt,
                 attacker=tap.make_attacker(attacker, seed=config['seed']),
                 evaluator=tap.make_evaluator(evaluator, seed=config['seed']),
-                target=tap.make_target(target, case['task_id'], task_prompt, seed=config['seed']),
+                target=probe,
                 config=config,
                 record=lambda event, **values: write_trace(trace, event, task_id=case['task_id'], **values))
             outcome['status'] = 'completed'
@@ -174,7 +186,8 @@ def main():
         (directory / 'report.md').write_text(render_report(results, payloads), encoding='utf-8')
         print(f"Frozen payloads: {directory / 'payloads.json'} (sha256 {digest})")
         print(f"Run a trial with: python -m lab.dojo --tap-payloads {directory / 'payloads.json'} "
-              f"--tasks {' '.join(c['task_id'] for c in completed)}")
+              f"--tasks {' '.join(c['task_id'] for c in completed)}" +
+              (' --attack delete' if args.attack == 'delete' else ''))
     if failed:
         print(f"{len(failed)} case(s) failed; see {result_path}")
         raise SystemExit(1)

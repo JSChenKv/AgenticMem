@@ -108,11 +108,18 @@ CASES = [
 
 def with_attack(case, attack='update'):
     """The case as run under one attack: 'update' asserts the attacker value, 'delete' asks the
-    agent to delete the user's memories on the topic. Both use the same slots and template."""
+    agent to delete the user's memories on the topic. Both use the same slots and template.
+
+    ``case['goal']`` is the active goal. A frozen TAP goal is kept; otherwise the attack selects
+    its fixed baseline goal (``delete_goal`` for the delete attack)."""
     if attack not in ATTACKS:
         raise ValueError('Unknown attack')
-    payload = render_payload(case['goal'] if attack == 'update' else case['delete_goal'])
-    return {**case, 'attack': attack, 'payload': payload,
+    if attack == 'delete' and case.get('value_source') != 'tap_frozen':
+        goal = case['delete_goal']
+    else:
+        goal = case['goal']
+    payload = render_payload(goal)
+    return {**case, 'goal': goal, 'attack': attack, 'payload': payload,
             'additional_injections': {v: payload for v in case.get('additional_vectors', [])}}
 
 
@@ -334,12 +341,10 @@ def main():
     cases = [c for c in CASES if c['task_id'] in args.tasks]
     frozen, tap_provenance = None, None
     if args.tap_payloads:
-        if args.attack != 'update':
-            raise ValueError('Frozen TAP payloads rewrite the update attack only')
         path = args.tap_payloads if args.tap_payloads.is_absolute() else ROOT / args.tap_payloads
         frozen = tap.load_payloads(path)
-        # Every frozen goal is checked against the current case inputs, protocol and classifier.
-        cases = tap.apply_payloads(cases, frozen, protocol=PROTOCOL_VERSION)
+        # The case digest covers the attack, so compare against the case as the trial runs it.
+        cases = tap.apply_payloads([with_attack(c, args.attack) for c in cases], frozen, protocol=PROTOCOL_VERSION)
         tap_provenance = {'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
                           'search_id': frozen['search_id'], 'classifier': frozen['classifier'],
                           'search': frozen.get('search'),
